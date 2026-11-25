@@ -34,8 +34,28 @@ ShellRoot {
         }
     }
     function smooth(t) { t = Math.max(0, Math.min(1, t)); return t*t*(3-2*t) }
+    // Anchor coordinates in the stable overlay: 0 = near edge, 0.5 = centre, 1 = far edge.
+    property real ax: prefs.hotspot.indexOf("left") >= 0 ? 0 : prefs.hotspot.indexOf("right") >= 0 ? 1 : 0.5
+    property real ay: prefs.hotspot.indexOf("top") >= 0 ? 0 : prefs.hotspot.indexOf("bottom") >= 0 ? 1 : 0.5
+    property real panelWidth: Math.max(1, drawer.width - 12)
+    property real panelHeight: Math.min(drawer.height - 12, animatedHeight)
+    property bool rings: prefs.viewMode === "rings"
+    property color sessionColor: tone("primary", "#e8e8e8")
+    property color weeklyColor: tone("tertiary", "#9b9b9b")
+    function stagger(i) {
+        if (!prefs.staggerEnabled) return smooth((reveal - 0.16) / 0.78)
+        let delay = 0.14 + Math.min(i, 10) * 0.045
+        return smooth((reveal - delay) / (1 - delay))
+    }
+    function windowFor(account, minutes) {
+        let windows = account.windows || []
+        return windows.find(w => Number(w.minutes) === minutes) || null
+    }
+    function remaining(w) {
+        return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
+    }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5 }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -142,7 +162,12 @@ ShellRoot {
     PanelWindow {
         id: drawer
         visible: true
-        anchors { top: true; right: true }
+        anchors {
+            top: root.ay === 0
+            bottom: root.ay === 1
+            left: root.ax === 0
+            right: root.ax === 1
+        }
         implicitWidth: Math.min(prefs.layoutWidth + 12, screen ? screen.width : 452)
         implicitHeight: Math.min(780, screen ? screen.height : 780)
         color: "transparent"
@@ -152,15 +177,17 @@ ShellRoot {
         mask: Region { item: corner; Region { item: hitbox } }
         Item {
             id: corner
-            anchors.top: parent.top; anchors.right: parent.right
+            x: (parent.width - width) * root.ax
+            y: (parent.height - height) * root.ay
             width: prefs.hoverEnabled && !root.settingsOpen ? 18 : 0
             height: width
         }
         Item {
             id: hitbox
-            anchors.top: parent.top; anchors.right: parent.right
+            x: (parent.width - width) * root.ax
+            y: (parent.height - height) * root.ay
             width: root.opened ? drawer.width : 0
-            height: root.opened ? Math.min(drawer.height, root.naturalHeight + 12) : 0
+            height: root.opened ? Math.min(drawer.height, Math.max(root.naturalHeight, root.animatedHeight) + 12) : 0
         }
         HoverHandler {
             id: drawerHover
@@ -173,10 +200,10 @@ ShellRoot {
         }
         Rectangle {
             id: body
-            anchors.top: parent.top; anchors.right: parent.right
-            anchors.topMargin: 6; anchors.rightMargin: 6
-            width: (drawer.width - 12) * root.reveal
-            height: Math.min(drawer.height - 12, root.animatedHeight) * root.reveal
+            x: 6 + (root.panelWidth - width) * root.ax
+            y: 6 + (drawer.height - 12 - height) * root.ay
+            width: root.panelWidth * root.reveal
+            height: root.panelHeight * root.reveal
             visible: root.reveal > 0.0001
             radius: Math.min(30, width / 2, height / 2)
             color: root.surface
@@ -187,11 +214,10 @@ ShellRoot {
             // reflow, scale, or layout resizing during the reveal.
             Flickable {
                 id: scroll
-                anchors.top: parent.top; anchors.right: parent.right
-                anchors.topMargin: 22; anchors.rightMargin: 22
+                x: 22 + (body.width - root.panelWidth) * root.ax
+                y: 22 + (body.height - root.panelHeight) * root.ay
                 width: Math.max(1, drawer.width - 56)
-                height: Math.max(1, Math.min(drawer.height - 12, root.animatedHeight) - 44)
-                opacity: root.smooth((root.reveal - 0.20) / 0.72)
+                height: Math.max(1, root.panelHeight - 44)
                 enabled: root.opened && root.reveal > 0.92
                 interactive: enabled && contentHeight > height
                 boundsBehavior: Flickable.StopAtBounds
@@ -201,6 +227,9 @@ ShellRoot {
                     id: content
                     width: scroll.width; spacing: 16
                     RowLayout {
+                        id: heading
+                        opacity: root.stagger(0)
+                        transform: Translate { y: (1 - heading.opacity) * 12 }
                         Layout.fillWidth: true; spacing: 12
                         ColumnLayout {
                             Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 4
@@ -210,16 +239,22 @@ ShellRoot {
                         MButton { Layout.alignment: Qt.AlignVCenter; onClicked: { root.settingsOpen = true; root.hide() } }
                     }
                     RowLayout {
+                        id: sectionHeading
+                        opacity: root.stagger(1)
+                        transform: Translate { y: (1 - sectionHeading.opacity) * 10 }
                         Layout.fillWidth: true
                         MText { text: "ACCOUNTS · REMAINING QUOTA"; color: root.muted; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 1.1; Layout.fillWidth: true }
                         MText { text: (root.accounts.length < 10 ? "0" : "") + root.accounts.length; color: root.muted; font.pixelSize: 12; font.family: root.monoFont }
                     }
-                    MText { visible: root.accounts.length === 0; text: "No cached accounts. Run aether refresh."; color: root.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    MText { opacity: root.stagger(2); visible: root.accounts.length === 0; text: "No cached accounts. Run aether refresh."; color: root.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Repeater {
-                        model: root.accounts
+                        model: root.rings ? [] : root.accounts
                         delegate: Rectangle {
                             id: accountCard
                             required property var modelData
+                            required property int index
+                            opacity: root.stagger(index + 2)
+                            transform: Translate { y: (1 - accountCard.opacity) * 16 }
                             Layout.fillWidth: true
                             implicitHeight: card.implicitHeight + 36
                             radius: 24; color: root.cardColor
@@ -249,6 +284,9 @@ ShellRoot {
                                         property bool known: modelData.remaining !== null && modelData.remaining !== undefined && isFinite(Number(modelData.remaining))
                                         property real remaining: known ? Math.max(0, Math.min(100, Number(modelData.remaining))) : 0
                                         property color indicator: known && remaining < 20 ? root.danger : root.primary
+                                        required property int index
+                                        opacity: root.stagger(accountCard.index + 3 + index)
+                                        transform: Translate { y: (1 - quota.opacity) * 8 }
                                         Layout.fillWidth: true; spacing: 8
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 8
@@ -265,7 +303,101 @@ ShellRoot {
                             }
                         }
                     }
+                    GridLayout {
+                        visible: root.rings && root.accounts.length > 0
+                        Layout.fillWidth: true
+                        columns: Math.max(1, Math.min(3, Math.floor((scroll.width + 12) / 144)))
+                        columnSpacing: 12; rowSpacing: 12
+                        Repeater {
+                            model: root.rings ? root.accounts : []
+                            delegate: Rectangle {
+                                id: ringCard
+                                required property var modelData
+                                required property int index
+                                property var session: root.windowFor(modelData, 300)
+                                property var week: root.windowFor(modelData, 10080)
+                                property real sessionLeft: root.remaining(session)
+                                property real weekLeft: root.remaining(week)
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 100
+                                Layout.preferredWidth: 132
+                                implicitHeight: ringContent.implicitHeight + 24
+                                radius: 24; color: root.cardColor
+                                opacity: root.stagger(index + 2)
+                                transform: Translate { y: (1 - ringCard.opacity) * 16 }
+                                ColumnLayout {
+                                    id: ringContent
+                                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                                    anchors.margins: 12; spacing: 5
+                                    Item {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: Math.min(100, ringCard.width - 24)
+                                        Layout.preferredHeight: width
+                                        Canvas {
+                                            id: ringsCanvas
+                                            anchors.fill: parent
+                                            property real sessionValue: ringCard.sessionLeft
+                                            property real weeklyValue: ringCard.weekLeft
+                                            property color sessionTint: root.sessionColor
+                                            property color weeklyTint: root.weeklyColor
+                                            property color trackTint: root.track
+                                            property real progress: root.stagger(ringCard.index + 3)
+                                            onSessionValueChanged: requestPaint()
+                                            onWeeklyValueChanged: requestPaint()
+                                            onSessionTintChanged: requestPaint()
+                                            onWeeklyTintChanged: requestPaint()
+                                            onTrackTintChanged: requestPaint()
+                                            onProgressChanged: requestPaint()
+                                            onWidthChanged: requestPaint()
+                                            onHeightChanged: requestPaint()
+                                            onPaint: {
+                                                let ctx = getContext("2d")
+                                                ctx.reset()
+                                                let cx = width / 2, cy = height / 2
+                                                let r = Math.max(1, Math.min(width, height) / 2 - 6)
+                                                let gap = 0.13, span = Math.PI - 2 * gap
+                                                ctx.lineWidth = 5; ctx.lineCap = "round"
+                                                function arc(start, end, anticlockwise, colour) {
+                                                    ctx.beginPath(); ctx.strokeStyle = colour
+                                                    ctx.arc(cx, cy, r, start, end, anticlockwise); ctx.stroke()
+                                                }
+                                                let left = -Math.PI/2-gap, right = -Math.PI/2+gap
+                                                arc(left, left-span, true, trackTint)
+                                                arc(right, right+span, false, trackTint)
+                                                if (sessionValue > 0 && progress > 0) arc(left, left-span*sessionValue/100*progress, true, sessionTint)
+                                                if (weeklyValue > 0 && progress > 0) arc(right, right+span*weeklyValue/100*progress, false, weeklyTint)
+                                            }
+                                        }
+                                        RuneIcon {
+                                            anchors.centerIn: parent
+                                            width: parent.width * 0.35; height: width
+                                            name: root.logo(ringCard.modelData.provider)
+                                            fallback: String(ringCard.modelData.provider).slice(0,1).toUpperCase()
+                                        }
+                                    }
+                                    MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: ringCard.modelData.provider; font.weight: Font.DemiBold; font.pixelSize: 14 }
+                                    MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: ringCard.modelData.name; color: root.muted; font.pixelSize: 11 }
+                                    RowLayout {
+                                        Layout.fillWidth: true; spacing: 4
+                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.sessionColor; font.family: root.monoFont; font.pixelSize: 13; text: ringCard.sessionLeft < 0 ? "—" : Math.round(ringCard.sessionLeft) + "%" }
+                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.weeklyColor; font.family: root.monoFont; font.pixelSize: 13; text: ringCard.weekLeft < 0 ? "—" : Math.round(ringCard.weekLeft) + "%" }
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true; spacing: 4
+                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.muted; font.pixelSize: 10; text: "5h" }
+                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.muted; font.pixelSize: 10; text: "Week" }
+                                    }
+                                    MText { visible: ringCard.modelData.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; text: ringCard.modelData.status }
+                                    MText { visible: ringCard.session !== null; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; color: root.muted; font.pixelSize: 10; text: "5h · " + root.resetText(ringCard.session ? ringCard.session.reset : null).replace("Resets in ", "") }
+                                    MText { visible: ringCard.week !== null; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; color: root.muted; font.pixelSize: 10; text: "W · " + root.resetText(ringCard.week ? ringCard.week.reset : null).replace("Resets in ", "") }
+                                }
+                            }
+                        }
+                    }
                     RowLayout {
+                        id: footer
+                        opacity: root.stagger(Math.min(root.accounts.length + 3, 10))
+                        transform: Translate { y: (1 - footer.opacity) * 8 }
                         Layout.fillWidth: true; spacing: 8
                         Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.muted }
                         MText { text: "Local cache"; color: root.muted; font.pixelSize: 11 }
@@ -280,7 +412,8 @@ ShellRoot {
         id: settingsPanel
         visible: true
         mask: Region { width: root.settingsOpen ? settingsPanel.width : 0; height: root.settingsOpen ? settingsPanel.height : 0 }
-        implicitWidth: 520; implicitHeight: 500
+        implicitWidth: Math.min(540, screen ? screen.width - 24 : 540)
+        implicitHeight: Math.min(760, screen ? screen.height - 24 : 760)
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
@@ -290,7 +423,12 @@ ShellRoot {
             opacity: root.settingsOpen ? 1 : 0; scale: root.settingsOpen ? 1 : 0.92
             Behavior on opacity { NumberAnimation { duration: prefs.motionMs; easing.type: Easing.InOutCubic } }
             Behavior on scale { NumberAnimation { duration: prefs.motionMs; easing.type: Easing.OutCubic } }
-            ColumnLayout { anchors.fill: parent; anchors.margins: 28; spacing: 17
+            Flickable {
+                id: settingsScroll
+                anchors.fill: parent; anchors.margins: 24
+                clip: true; contentWidth: width; contentHeight: settingsContent.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+                ColumnLayout { id: settingsContent; width: settingsScroll.width; spacing: 14
                 RowLayout { Layout.fillWidth: true
                     MText { text: "Settings"; font.pixelSize: 30; font.letterSpacing: -0.8; font.weight: Font.Medium; color: root.foreground; Layout.fillWidth: true }
                     Rectangle { implicitWidth: 82; implicitHeight: 40; radius: 20; color: root.buttonColor
@@ -300,13 +438,48 @@ ShellRoot {
                 }
                 MText { text: "Appearance & behaviour"; color: root.muted; font.pixelSize: 14 }
                 RowLayout { MText { text: "Follow Caelestia palette"; color: root.foreground; Layout.fillWidth: true } MSwitch { checked: prefs.followTheme; onToggled: prefs.followTheme = checked } }
-                RowLayout { MText { text: "Top-right hover"; color: root.foreground; Layout.fillWidth: true } MSwitch { checked: prefs.hoverEnabled; onToggled: prefs.hoverEnabled = checked } }
+                RowLayout { MText { text: "Hover activation"; color: root.foreground; Layout.fillWidth: true } MSwitch { checked: prefs.hoverEnabled; onToggled: prefs.hoverEnabled = checked } }
+                RowLayout {
+                    Layout.fillWidth: true
+                    MText { text: "Dashboard layout"; Layout.fillWidth: true }
+                    Repeater {
+                        model: ["grid", "rings"]
+                        delegate: Rectangle {
+                            required property string modelData
+                            implicitWidth: 82; implicitHeight: 36; radius: 18
+                            color: prefs.viewMode === modelData ? root.primary : root.track
+                            MText { anchors.centerIn: parent; text: parent.modelData === "grid" ? "Grid" : "Rings"; color: prefs.viewMode === parent.modelData ? root.surface : root.foreground }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: prefs.viewMode = parent.modelData }
+                        }
+                    }
+                }
+                MText { text: "Hover position"; font.weight: Font.Medium }
+                Rectangle {
+                    Layout.fillWidth: true; implicitHeight: 132; radius: 20; color: root.cardColor
+                    GridLayout {
+                        anchors.fill: parent; anchors.margins: 10; columns: 3; rowSpacing: 5; columnSpacing: 5
+                        Repeater {
+                            model: ["top-left", "top-center", "top-right", "left-center", "", "right-center", "bottom-left", "bottom-center", "bottom-right"]
+                            delegate: Rectangle {
+                                required property string modelData
+                                required property int index
+                                Layout.fillWidth: true; Layout.fillHeight: true
+                                radius: 10
+                                color: modelData === "" ? "transparent" : prefs.hotspot === modelData ? root.primary : root.track
+                                MText { anchors.centerIn: parent; text: ["↖","↑","↗","←","SCREEN","→","↙","↓","↘"][parent.index]; color: prefs.hotspot === parent.modelData ? root.surface : root.muted; font.pixelSize: parent.index === 4 ? 10 : 19 }
+                                MouseArea { anchors.fill: parent; enabled: parent.modelData !== ""; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: prefs.hotspot = parent.modelData }
+                            }
+                        }
+                    }
+                }
+                MText { text: prefs.hotspot.replace("-", " "); color: root.muted; font.pixelSize: 12 }
+                RowLayout { MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                 RowLayout { MText { text: "Animation · " + prefs.motionMs + " ms"; color: root.foreground; Layout.fillWidth: true } MSlider { from: 300; to: 1400; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
                 RowLayout { MText { text: "Dismiss · " + prefs.dismissDelay + " ms"; color: root.foreground; Layout.fillWidth: true } MSlider { from: 100; to: 1000; stepSize: 50; value: prefs.dismissDelay; onMoved: prefs.dismissDelay = Math.round(value) } }
                 RowLayout { MText { text: "Width · " + prefs.layoutWidth + " px"; color: root.foreground; Layout.fillWidth: true } MSlider { from: 360; to: 560; stepSize: 10; value: prefs.layoutWidth; onMoved: prefs.layoutWidth = Math.round(value) } }
                 RowLayout { MText { text: "Cache refresh · " + prefs.cacheSeconds + " s"; color: root.foreground; Layout.fillWidth: true } MSlider { from: 2; to: 30; stepSize: 1; value: prefs.cacheSeconds; onMoved: prefs.cacheSeconds = Math.round(value) } }
-                Item { Layout.fillHeight: true }
-                MText { text: "Local settings · T3 Code and Caelestia are untouched"; color: root.muted; font.pixelSize: 11 }
+                MText { text: "Local settings · T3 Code and Caelestia are untouched"; color: root.muted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                }
             }
         }
     }

@@ -6,7 +6,7 @@ A local-first AI quota monitor for Linux. Rust backend, independent Quickshell/Q
 
 ## Current state
 
-Experimental Rust backend v0.1.0 + UI v5. Codex is the only implemented quota provider; Claude, Grok, OpenCode and Pi are planned. The UI does not modify Caelestia or T3 Code. Native managed T3 authentication is not implemented. No license has been selected yet.
+Experimental Rust backend v0.1.0 + UI v6. Codex is the only implemented quota provider; Claude, Grok, OpenCode and Pi are planned. The UI does not modify Caelestia or T3 Code. Native managed T3 authentication is not implemented. No license has been selected yet.
 
 ## Install
 
@@ -28,7 +28,9 @@ systemctl --user enable --now aether.service
 qs -c aether
 ```
 
-Hover at the top-right to open the drawer, or run `qs -c aether ipc call dashboard toggle` in a separate terminal. Settings: `qs -c aether ipc call dashboard settings`.
+Hover at the top-right (default) to open the drawer, or run `qs -c aether ipc call dashboard toggle` in a separate terminal. Settings: `qs -c aether ipc call dashboard settings`.
+
+In Settings, choose Grid (detailed quota cards) or Rings (left semicircle: 5-hour session; right semicircle: weekly). Ring colors use Caelestia primary/tertiary tones or two grayscale values in standalone mode. Missing windows show a dash. Choose any of the eight screen corners/edge centres, and enable or disable staggered motion. Settings persist locally. The overlay remains independent of Caelestia.
 
 Optional personal Hyprland configuration:
 
