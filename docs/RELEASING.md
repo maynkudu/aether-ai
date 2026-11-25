@@ -20,6 +20,10 @@ Prereleases use `v0.2.0-alpha.1`, `v0.2.0-beta.1` or `v0.2.0-rc.1` with an exact
 
 A small validation job checks tags, notes, ancestry and a tracked Cargo.lock before the expensive native build matrix. Website release checks also validate the tag before installing dependencies. The native macOS build embeds the release tag, enabling correct alpha-to-alpha and alpha-to-stable comparisons. Run `cargo generate-lockfile` and commit it after dependency changes before creating a release tag.
 
+### First alpha candidate
+
+The dated `0.2.0-alpha.1` notes are prepared. From a clean main checkout, run `cargo generate-lockfile`, `python3 scripts/test_release_check.py`, and `python3 scripts/release_check.py --tag v0.2.0-alpha.1`. Commit and push the generated Cargo.lock, then explicitly create/push the alpha tag when ready. Do not run the full matrix for ordinary feature commits. Review the generated draft and smoke-test native integrations before publishing.
+
 ## Limitations
 
 CI generates a lockfile if missing; commit it for reproducible dependencies. Signed release provenance, cargo fmt/clippy enforcement, dependency audit and real Hyprland visual interaction tests remain future gates. Headless Sway exercises startup and IPC, not visual fidelity. The native binary self-test validates embedded icon decoding and platform storage without opening a GUI. Failed Linux smoke logs are saved as a diagnostic artifact. The disposable Arch CI container removes Sway's file capabilities before launching it as an unprivileged user, avoiding Docker's capability-boundary execution failure. No change to the user's installed compositor is needed. Repository branch protection and required-check settings are managed separately in GitHub; review existing requirements after adopting release-only CI. Artifacts are Arch-targeted, not universal Linux installers; existing updater still builds from source. Windows x64, Apple Silicon and Intel macOS preview builds are now included as required jobs. macOS uses ad-hoc signing only; no notarization. Native desktop smoke testing on real machines remains required.

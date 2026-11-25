@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.1] - 2026-11-25
+
+First public alpha candidate. The release is a prerelease, not a stable build.
+
+### Highlights
+
+- Local-first Codex quota monitoring, multiple accounts, real quota history, and Wisp branding.
+- Linux (Arch x86_64 / Wayland): Quickshell control centre, grid/ring quotas, configurable motion, palettes including Caelestia, shortcuts and existing opt-in updater.
+- macOS (Apple Silicon and Intel): native Rust desktop, seven built-in palettes, experimental menu bar, global shortcuts, compact primary-display corner drawer, independent polling while minimized, and opt-in stable/preview release updates staged for Quit.
+- Windows x64: native Rust desktop, seven built-in palettes, quota monitoring and history.
+- Build archives for all four targets, source archive, SHA256 checksums, tag-only CI, and early release preflight.
+
+### Known limitations
+
+- Codex is the only implemented provider adapter. Linux is the primary target; the new native macOS integrations require real-device testing. Windows remains experimental.
+- macOS packages are ad-hoc signed and not notarized; Windows packages are unsigned. macOS auto-update installation requires a writable Applications folder, is opt-in, and uses official published assets with checksum and bundle-integrity validation. It does not run after the application quits except to complete an already staged replacement.
+- No macOS login launch agent yet; background polling continues while Aether runs minimized, and Quit stops it.
+- The Linux binary archive targets Arch x86_64; Quickshell, Wayland and Codex prerequisites still apply.
+
+## Development history before alpha
+
 - Turn the macOS corner reveal into a compact always-on-top quota drawer while minimized, with delayed pointer-leave dismissal, full-window restoration, Escape and Cmd+1–5 navigation.
 - Bound the native poller's result storage to its latest snapshot.
 
