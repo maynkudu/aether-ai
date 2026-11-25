@@ -10,6 +10,8 @@ The optional font pack includes Inter, Manrope, Montserrat, Poppins, DM Sans, Pl
 
 Caelestia requires a running standard `qs -c caelestia` instance and a usable scheme JSON (normally ~/.local/state/caelestia/scheme.json). If unavailable, the option is disabled and existing selections fall back to Mono. Nonstandard config names are not detected automatically.
 
+Native Windows and macOS support the seven built-in palette IDs and migrate the previous light/dark preference. Caelestia remains Linux-only.
+
 ## Scrolling
 
 Appearance → Scrolling controls scroll edge fades, fade depth and trackpad speed (0.8–3.0×; default 1.6×). Precision touchpad events use their pixel delta directly, including precision events classified as mouse input by Qt. Conventional wheel notches use a fixed 48 px step; the trackpad multiplier applies only to pixel deltas. Animation speed does not control scrolling.

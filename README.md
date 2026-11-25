@@ -56,7 +56,7 @@ Linux supports Liquid, Smooth and Reduced motion, with opaque theme-aware surfac
 | Status | Primary development target | Experimental | Experimental |
 | Codex & history | Implemented | Implemented; testing pending | Implemented; testing pending |
 | Hover drawer, global hotkeys | Implemented | Planned | Planned |
-| Theme support | Eight schemes | Mono / Mono Light | Mono / Mono Light |
+| Theme support | Eight schemes | Seven built-in schemes | Seven built-in schemes |
 | Application updates | Opt-in updater | Planned | Planned |
 
 The desktop preview polls while open; the Linux daemon runs independently. No Electron or hosted service required.

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Accept version-matched alpha, beta and RC release tags with exact dated notes, and draft suffixed tags as GitHub prereleases; retain release-only CI.
+- Port all seven built-in Linux colour schemes to native desktop and migrate existing light/dark preferences. Caelestia remains Linux-only.
+
 ### Release-only CI
 
 - Limit application and website Actions workflows to version-tag pushes and manual dispatch; retain mandatory native release build/test gates.

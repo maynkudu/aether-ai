@@ -10,6 +10,8 @@ Application CI validates matching Cargo/QML versions, shell/Python syntax, Cargo
 
 ## Prepare a release
 
+Prereleases use `v0.2.0-alpha.1`, `v0.2.0-beta.1` or `v0.2.0-rc.1` with an exact dated changelog heading such as `## [0.2.0-alpha.1] - YYYY-MM-DD`. Keep the shared Cargo/QML/macOS bundle version numeric (`0.2.0`). The workflow marks suffixed tags as GitHub prereleases; do not publish them as stable. Ordinary commits still do not trigger either workflow.
+
 1. Choose the version (e.g. 0.3.0), update root Cargo.toml, QML version, apps/desktop/Cargo.toml and both macOS Info.plist version fields.
 2. Move applicable Unreleased changes into a new dated heading: `## [0.3.0] - YYYY-MM-DD`. Preserve previous history.
 3. Commit Cargo.lock (if not yet tracked), run relevant checks locally and merge reviewed changes. If desired, manually run application and website CI on the candidate commit before tagging. Do not configure skipped automatic PR checks as mandatory branch checks unless you intend to run them manually for every PR.

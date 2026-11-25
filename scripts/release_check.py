@@ -26,10 +26,11 @@ def main():
     args = p.parse_args()
     v = version()
     if args.tag:
-        if args.tag != "v"+v:
-            raise SystemExit("Tag does not match Cargo/QML version")
+        if not re.fullmatch(r"v" + re.escape(v) + r"(?:-(?:alpha|beta|rc)\.[1-9][0-9]*)?", args.tag):
+            raise SystemExit("Tag must match the app version, optionally with -alpha.N, -beta.N or -rc.N")
+        release_version = args.tag[1:]
         text = (ROOT/"CHANGELOG.md").read_text()
-        match = re.search(r"(?m)^## \["+re.escape(v)+r"\] - \d{4}-\d{2}-\d{2}[ \t]*$",text)
+        match = re.search(r"(?m)^## \["+re.escape(release_version)+r"\] - \d{4}-\d{2}-\d{2}[ \t]*$",text)
         if not match:
             raise SystemExit("Release needs a dated ## [VERSION] - YYYY-MM-DD heading")
         notes = re.split(r"(?m)^## ",text[match.end():],maxsplit=1)[0].strip()

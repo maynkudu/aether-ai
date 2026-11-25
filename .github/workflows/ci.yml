@@ -222,4 +222,8 @@ jobs:
         shell: bash
         run: |
           (cd dist && sha256sum -c SHA256SUMS && sha256sum *.tar.gz *.zip > SHA256SUMS)
-          gh release create "$TAG" --verify-tag --draft --title "aether.ai $TAG" --notes-file release-notes.md dist/*
+          flags=(--draft)
+          case "$TAG" in
+            *-alpha.*|*-beta.*|*-rc.*) flags+=(--prerelease) ;;
+          esac
+          gh release create "$TAG" --verify-tag "${flags[@]}" --title "aether.ai $TAG" --notes-file release-notes.md dist/*
