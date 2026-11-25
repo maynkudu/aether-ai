@@ -9,7 +9,7 @@
 
 **A local-first AI quota monitor, designed to stay out of your way.**
 
-[Quick start](#quick-start) · [Features](#features) · [Platforms](#platforms) · [Docs](#documentation) · [Contribute](#contributing)
+[Website source](apps/web) · [Quick start](#quick-start) · [Features](#features) · [Platforms](#platforms) · [Docs](#documentation) · [Contribute](#contributing)
 
 </div>
 
