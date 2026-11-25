@@ -12,6 +12,8 @@ Caelestia requires a running standard `qs -c caelestia` instance and a usable sc
 
 Native Windows and macOS support the seven built-in palette IDs and migrate the previous light/dark preference. Caelestia remains Linux-only.
 
+On macOS, Appearance also enables optional registered global shortcuts (Cmd+Option+Shift+A/R) and a primary-display corner reveal. Closing the window minimizes if menu-bar initialization succeeds; Quit stops the process. No login agent is installed.
+
 ## Scrolling
 
 Appearance → Scrolling controls scroll edge fades, fade depth and trackpad speed (0.8–3.0×; default 1.6×). Precision touchpad events use their pixel delta directly, including precision events classified as mouse input by Qt. Conventional wheel notches use a fixed 48 px step; the trackpad multiplier applies only to pixel deltas. Animation speed does not control scrolling.

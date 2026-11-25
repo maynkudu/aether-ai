@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Add experimental macOS menu bar controls, opt-in registered shortcuts and selectable primary-display corner dwell reveal; close minimizes when native controls initialize successfully.
+- Move native quota refreshes into a single independent polling worker, preventing concurrent refreshes and keeping macOS polling with the window minimized.
+
 - Accept version-matched alpha, beta and RC release tags with exact dated notes, and draft suffixed tags as GitHub prereleases; retain release-only CI.
 - Port all seven built-in Linux colour schemes to native desktop and migrate existing light/dark preferences. Caelestia remains Linux-only.
 
