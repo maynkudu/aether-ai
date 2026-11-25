@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Concentric rings and web refinements
+
+- Adopt full concentric session and weekly quota gauges on Linux, preserving real quota values, resets and provider identity.
+- Fix website interaction initialization, separate motion loading, introduce each section, enable default Wisp motion and use Rune Icons without decorative link arrows.
+
 ### Wisp identity
 
 - Adopt Wisp as the official mascot while retaining aether.ai as the product name. Replace the spiral in the README, QML headers and native icons.

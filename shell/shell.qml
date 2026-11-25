@@ -753,15 +753,22 @@ ShellRoot {
                                     id: ringContent
                                     anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
                                     anchors.margins: 12; spacing: 5
+                                    RowLayout {
+                                        Layout.fillWidth: true; spacing: 6
+                                        ProviderIcon { Layout.preferredWidth: 23; Layout.preferredHeight: 23; name: root.logo(ringCard.modelData.provider); fallback: String(ringCard.modelData.provider).slice(0,1).toUpperCase() }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
+                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.modelData.name; font.weight: Font.DemiBold; font.pixelSize: 12 }
+                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.modelData.provider; color: root.muted; font.pixelSize: 10 }
+                                        }
+                                    }
                                     Item {
                                         id: ringFace
                                         // Never let the layout independently stretch the two axes.
-                                        property real diameter: Math.max(1, Math.min(112, Math.floor(ringCard.width - 24)))
-                                        property real strokeSize: 5.5
-                                        property real ringRadius: Math.max(1, diameter / 2 - strokeSize / 2 - 2)
-                                        // A constant 3px clear gap after rounded caps, on both ends.
-                                        property real gapAngle: Math.asin(Math.min(0.95, (strokeSize + 3) / (2 * ringRadius))) * 180 / Math.PI
-                                        property real arcSpan: 180 - 2 * gapAngle
+                                        property real diameter: Math.max(1, Math.min(132, Math.floor(ringCard.width - 24)))
+                                        property real strokeSize: diameter * 0.05
+                                        property real outerRadius: diameter * 0.40
+                                        property real innerRadius: diameter * (37 / 120)
                                         property real drawProgress: root.stagger(ringCard.index + 3)
                                         implicitWidth: diameter
                                         implicitHeight: diameter
@@ -778,61 +785,33 @@ ShellRoot {
                                             anchors.fill: parent
                                             preferredRendererType: Shape.CurveRenderer
                                             ShapePath {
-                                                fillColor: "transparent"
-                                                strokeColor: root.track
-                                                strokeWidth: ringFace.strokeSize
-                                                capStyle: ShapePath.RoundCap
-                                                PathAngleArc {
-                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
-                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
-                                                    startAngle: 270 - ringFace.gapAngle; sweepAngle: -ringFace.arcSpan
-                                                }
+                                                fillColor: "transparent"; strokeColor: root.track
+                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 360 }
                                             }
                                             ShapePath {
-                                                fillColor: "transparent"
-                                                strokeColor: root.track
-                                                strokeWidth: ringFace.strokeSize
-                                                capStyle: ShapePath.RoundCap
-                                                PathAngleArc {
-                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
-                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
-                                                    startAngle: 270 + ringFace.gapAngle; sweepAngle: ringFace.arcSpan
-                                                }
+                                                fillColor: "transparent"; strokeColor: root.track
+                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 360 }
                                             }
                                             ShapePath {
-                                                fillColor: "transparent"
-                                                strokeColor: ringCard.sessionLeft > 0 && ringFace.drawProgress > 0 ? root.sessionColor : "transparent"
-                                                strokeWidth: ringFace.strokeSize
-                                                capStyle: ShapePath.RoundCap
-                                                PathAngleArc {
-                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
-                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
-                                                    startAngle: 270 - ringFace.gapAngle
-                                                    sweepAngle: -ringFace.arcSpan * Math.max(0, ringCard.sessionLeft) / 100 * ringFace.drawProgress
-                                                }
+                                                fillColor: "transparent"; strokeColor: ringCard.sessionLeft > 0 && ringFace.drawProgress > 0 ? root.sessionColor : "transparent"
+                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 360 * Math.min(100, Math.max(0, ringCard.sessionLeft)) / 100 * ringFace.drawProgress }
                                             }
                                             ShapePath {
-                                                fillColor: "transparent"
-                                                strokeColor: ringCard.weekLeft > 0 && ringFace.drawProgress > 0 ? root.weeklyColor : "transparent"
-                                                strokeWidth: ringFace.strokeSize
-                                                capStyle: ShapePath.RoundCap
-                                                PathAngleArc {
-                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
-                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
-                                                    startAngle: 270 + ringFace.gapAngle
-                                                    sweepAngle: ringFace.arcSpan * Math.max(0, ringCard.weekLeft) / 100 * ringFace.drawProgress
-                                                }
+                                                fillColor: "transparent"; strokeColor: ringCard.weekLeft > 0 && ringFace.drawProgress > 0 ? root.weeklyColor : "transparent"
+                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 360 * Math.min(100, Math.max(0, ringCard.weekLeft)) / 100 * ringFace.drawProgress }
                                             }
                                         }
-                                        ProviderIcon {
-                                            anchors.centerIn: parent
-                                            width: Math.round(ringFace.diameter * 0.43); height: width
-                                            name: root.logo(ringCard.modelData.provider)
-                                            fallback: String(ringCard.modelData.provider).slice(0,1).toUpperCase()
+                                        Column {
+                                            anchors.centerIn: parent; spacing: 3
+                                            MText { anchors.horizontalCenter: parent.horizontalCenter; text: ringCard.sessionLeft < 0 ? "—" : Math.round(ringCard.sessionLeft) + "%"; font.weight: Font.DemiBold; font.pixelSize: Math.max(10, ringFace.diameter * 0.25); color: root.foreground }
+                                            MText { anchors.horizontalCenter: parent.horizontalCenter; text: "session"; font.pixelSize: Math.max(8, ringFace.diameter * 0.085); color: root.muted }
                                         }
                                     }
-                                    MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: ringCard.modelData.provider; font.weight: Font.DemiBold; font.pixelSize: 14 }
-                                    MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: ringCard.modelData.name; color: root.muted; font.pixelSize: 11 }
+
                                     RowLayout {
                                         Layout.fillWidth: true; spacing: 4
                                         MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.sessionColor; font.family: root.monoFont; font.pixelSize: 13; text: ringCard.sessionLeft < 0 ? "—" : Math.round(ringCard.sessionLeft) + "%" }

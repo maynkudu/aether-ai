@@ -4,7 +4,7 @@
 
 ## Appearance
 
-Linux provides Grid/Rings, eight corner/edge hotspots, seven built-in palettes plus Caelestia, rounding and width controls, font selector, 12–48 px scroll fades and Liquid/Smooth/Reduced motion. Default animation duration is 1100 ms. Downward dropdowns grow from top-left; upward dropdowns from bottom-left. Reduced disables new spring transitions; some existing colour/quota transitions remain.
+Linux provides Grid/Rings (outer session and inner weekly concentric gauges), eight corner/edge hotspots, seven built-in palettes plus Caelestia, rounding and width controls, font selector, 12–48 px scroll fades and Liquid/Smooth/Reduced motion. Default animation duration is 1100 ms. Downward dropdowns grow from top-left; upward dropdowns from bottom-left. Reduced disables new spring transitions; some existing colour/quota transitions remain.
 
 The optional font pack includes Inter, Manrope, Montserrat, Poppins, DM Sans, Plus Jakarta Sans, Space Grotesk, Outfit, Sora, Figtree, Rubik and Noto Sans, plus JetBrains Mono for numbers. Installed families appear in the selector. Fonts live in XDG_DATA_HOME/fonts/aether-ai (default ~/.local/share/fonts/aether-ai) with upstream OFL licenses.
 
