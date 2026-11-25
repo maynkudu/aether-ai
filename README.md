@@ -1,145 +1,190 @@
-# aether.ai
+<div align="center">
+<img src="docs/assets/banner.svg" alt="aether.ai — Intelligence, within limits." width="100%">
 
-**Intelligence, within limits.**
+[![CI and releases](https://github.com/maynkudu/aether-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/maynkudu/aether-ai/actions/workflows/ci.yml)
+[![MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/maynkudu/aether-ai)](https://github.com/maynkudu/aether-ai/stargazers)
+[![Status](https://img.shields.io/badge/status-early%20development-lightgrey)](CHANGELOG.md)
+[![Rust](https://img.shields.io/badge/core-Rust-252525?logo=rust)](Cargo.toml)
 
-A local-first AI quota monitor for Linux. Rust backend, independent Quickshell/QML overlay, experimental T3 Code account discovery, and Caelestia-aware theming. No inference proxy or telemetry.
+**A local-first AI quota monitor, designed to stay out of your way.**
 
-## Current state
+[Quick start](#quick-start) · [Features](#features) · [Platforms](#platforms) · [Docs](#documentation) · [Contribute](#contributing)
 
-Experimental v0.2.0. Codex is the only implemented quota provider; Claude, Grok, OpenCode and Pi are planned. The UI does not modify Caelestia or T3 Code. Native managed T3 authentication is not implemented. Licensed under MIT; third-party brand assets remain subject to their own terms.
+</div>
 
-## Install
+---
 
-Requirements: Rust/Cargo, Codex CLI, Quickshell, systemd user services. Optional: Python 3 and ImageMagick for fetching/rendering provider artwork, Inter and JetBrains Mono fonts. Rings use QtQuick.Shapes (Qt 6.6+).
+aether.ai brings your AI usage limits into one glanceable desktop interface. Track remaining Codex quota across multiple accounts, see how limits change over time, and keep your workflow in focus — without an inference proxy, hosted dashboard or telemetry.
 
-```sh
-bash install.sh --fetch-icons
-```
+Built with a shared Rust core, an independent Quickshell overlay for Linux, and an experimental native Rust/egui frontend for Windows and macOS.
 
-On Arch, optional dependencies: `sudo pacman -S --needed imagemagick inter-font ttf-jetbrains-mono`. Keep rustup if already installed. The opt-in icon fetch uses [documented provider artwork sources](shell/BRAND-ASSETS.md), not community icon libraries. Original brand artwork and theme variants are retained. Unknown/unavailable providers use initials.
+> [!NOTE]
+> **Early development (v0.2.0).** Codex is the only implemented quota adapter. Linux is the primary platform. Native Windows and macOS builds still require verification. No stable GitHub release has been published yet.
 
-In Fish, ensure `fish_add_path ~/.local/bin` has been run.
+<img src="docs/assets/interface.svg" alt="Illustration of aether control centre, quota cards, circular drawer and history" width="100%">
 
-```sh
-aether accounts
-aether refresh
-aether usage
+<sub>Illustrative interface artwork with sample data, not a screenshot. Actual layout and colours depend on preferences.</sub>
+
+## Features
+
+| | |
+|---|---|
+| **At-a-glance quotas** — Session and weekly limits, reset information, grid cards and circular gauges. | **Multiple accounts** — Local Codex homes, experimental T3 discovery and independent visibility. |
+| **Local analytics** — Real recorded quota history, line and bar views, 24h–90d ranges. | **Fluid interactions** — Corner-anchored drawer, spring motion, staggered pages, directional dropdowns and scroll fades. |
+| **Personal by design** — Eight palettes, curated typefaces, configurable hotspots and shortcuts. | **Stay current** — Linux opt-in updates, Stable/Development channels and previous-build rollback. |
+
+### Appearance
+
+<img src="docs/assets/palettes.svg" alt="Seven built-in colour schemes and dynamic Caelestia palette" width="100%">
+
+Linux supports Liquid, Smooth and Reduced motion; Solid, Frosted Glass and experimental compositor-backed Liquid Glass. Caelestia and refractive glass are optional and disabled when prerequisites are missing. See [configuration](docs/CONFIGURATION.md).
+
+## Platforms
+
+| | Linux (Wayland) | Windows x64 | macOS ARM64 / Intel |
+|---|---|---|---|
+| Frontend | Quickshell / Qt Quick | Rust / egui | Rust / egui |
+| Status | Primary development target | Experimental | Experimental |
+| Codex & history | Implemented | Implemented; testing pending | Implemented; testing pending |
+| Hover drawer, global hotkeys | Implemented | Planned | Planned |
+| Theme support | Eight schemes | Mono / Mono Light | Mono / Mono Light |
+| Application updates | Opt-in updater | Planned | Planned |
+| Refractive glass | Optional HyprGlass | Not implemented | Not implemented |
+
+The desktop preview polls while open; the Linux daemon runs independently. No Electron or hosted service required.
+
+### Provider support
+
+| Group | Provider | Quota adapter |
+|---|---|---|
+| First-party agents | OpenAI Codex | Implemented |
+| First-party agents | Claude Code, Grok | Planned |
+| Harnesses / routing | OpenCode, Pi, OpenRouter | Planned |
+| Aggregators | AgentRouter, FreeGG | Planned |
+| Other providers | DeepSeek | Planned |
+
+Artwork and provider visibility entries do not imply working quota integrations. See [account discovery](docs/CONFIGURATION.md#account-discovery).
+
+## Quick start
+
+### Linux
+
+Requires Wayland, Quickshell with Qt 6.8+ popup APIs, Rust/Cargo, Git, Bash, Python 3.12+, systemd user services and native Codex CLI. Optional: ImageMagick and fontconfig. Hyprland is the primary target; Caelestia is not required.
+
+```bash
+git clone https://github.com/maynkudu/aether-ai.git
+cd aether-ai
+codex login
+bash install.sh --fetch-icons --fetch-fonts
 systemctl --user enable --now aether.service
 qs -c aether
 ```
 
-Hover at the top-right (default) to open the drawer, or run `qs -c aether ipc call dashboard toggle` in a separate terminal. Settings: `qs -c aether ipc call dashboard settings`.
+Hover over the top-right corner. Open the Control Centre using its gear icon, or from a separate terminal:
 
-In Settings, choose Grid (detailed quota cards) or Rings (left semicircle: 5-hour session; right semicircle: weekly). Rings use native circular vector paths, with a fixed square drawing area and evenly spaced rounded caps. Ring colors use Caelestia primary/tertiary tones or two grayscale values in standalone mode. Missing windows show a dash. Choose any of the eight screen corners/edge centres, and enable or disable staggered motion. Settings persist locally. The overlay remains independent of Caelestia.
-
-Optional personal Hyprland configuration:
-
-```ini
-exec-once = qs -c aether
-bind = SUPER, U, exec, qs -c aether ipc call dashboard toggle
+```bash
+qs -c aether ipc call dashboard settings
 ```
 
-## Update
+[Full Linux guide →](docs/LINUX.md)
 
-```sh
-git pull --ff-only
-bash install.sh
-systemctl --user restart aether.service
-qs kill -c aether
-qs -c aether
+### Windows & macOS
+
+Install and authenticate the native Codex CLI first. After a successful native build, download the matching experimental artifact from [GitHub Actions](https://github.com/maynkudu/aether-ai/actions).
+
+| Target | Package |
+|---|---|
+| Windows x64 | `aether-windows-x64.zip` |
+| Apple Silicon | `aether-macos-arm64.zip` |
+| Intel Mac | `aether-macos-x64.zip` |
+
+Extract the archive and launch `aether-desktop.exe` or `aether.ai.app`. Windows builds are unsigned; macOS builds are ad-hoc signed, not notarized. Only run builds whose provenance you trust. Actions artifacts may require GitHub sign-in and can expire.
+
+Build from source:
+
+```bash
+cargo run -p aether-desktop --release
 ```
 
-For UI-only updates, use `bash install.sh --ui-only` and restart only aether's Quickshell instance. Preferences and locally installed brand artwork are retained. After updating from v6 or older, run `bash install.sh --ui-only --fetch-icons` once to acquire the new provider artwork. The UI installer backs up the existing shell.qml. Initial UI defaults: 440px width, 820ms opening, approximately 722ms closing.
+[Desktop preview guide →](apps/desktop/README.md)
 
-## Account discovery and safety
+## CLI
 
-T3 discovery is experimental and assumes a settings schema. To locate the settings file without printing secrets:
-
-```sh
-find ~/.config ~/.local/share ~/.t3 ~/.t3code -name settings.json 2>/dev/null
+```bash
+aether accounts       # discovered account homes
+aether usage          # cached quota JSON
+aether history 7      # seven days of local history
+aether version
 ```
 
-Use `AETHER_T3_SETTINGS` to specify its exact path or `AETHER_CODEX_HOMES` for colon-separated absolute Codex home paths. In Fish use `set -x AETHER_T3_SETTINGS /actual/path/settings.json` for the current session. Configure daemon overrides with `systemctl --user edit aether.service` and an `[Service]` section containing `Environment=AETHER_T3_SETTINGS=/absolute/path` if needed.
+`aether refresh` performs a provider probe; avoid running concurrently with the Linux daemon. Fish users can run `fish_add_path ~/.local/bin` if the CLI is not found.
 
-The backend launches native Codex app-server probes and caches primary/secondary quota windows. Codex itself may refresh credentials. Managed T3 credentials and shadow-home runtime semantics are not implemented; shadow homes are treated as standalone CODEX_HOME paths. Deduplication is by directory, not identity. Avoid concurrent manual and daemon refreshes. The daemon polls every 180 seconds. Never commit credentials, personal settings, usage caches or installed configuration directories.
+## Updates & releases
+
+| Channel | Tracks |
+|---|---|
+| Stable | Published, non-prerelease GitHub releases |
+| Development | Commits on main |
+
+On Linux, automatic installation is opt-in. Until the first stable release exists, choose Development for testing. Updates build from isolated upstream sources rather than modifying your checkout.
+
+```bash
+aether-update check development
+aether-update apply development
+aether-update rollback
+```
+
+See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engineering](docs/RELEASING.md). CI is configured to validate Linux and native desktop builds before drafting a versioned release for manual review.
+
+## Architecture
+
+<img src="docs/assets/architecture.svg" alt="Shared Rust quota core with Linux, Windows and macOS frontends" width="100%">
+
+One repository, one shared core, platform-specific integrations. The Linux installer and cache format retain their existing layout.
+
+[Explore the architecture →](docs/ARCHITECTURE.md)
+
+## Privacy & security
+
+aether queries the native Codex app-server and reads local account configuration. It does not forward inference requests, upload quota history or collect telemetry. Codex may refresh its own authentication. Local caches contain account names, paths and quota percentages; treat them as private. Optional assets and update checks contact upstream services.
+
+See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-data).
+
+## Documentation
+
+| Guide | Contents |
+|---|---|
+| [Linux installation](docs/LINUX.md) | Setup, systemd, IPC, shortcuts, updates and troubleshooting |
+| [Configuration](docs/CONFIGURATION.md) | Themes, glass, fonts, discovery, analytics and storage |
+| [Desktop preview](apps/desktop/README.md) | Windows and macOS setup and limitations |
+| [Architecture](docs/ARCHITECTURE.md) | Workspace structure and shared interfaces |
+| [Release engineering](docs/RELEASING.md) | CI gates, versioning, builds and publication |
+| [Changelog](CHANGELOG.md) | Development and release history |
+| [Brand assets](shell/BRAND-ASSETS.md) | Artwork provenance and third-party licenses |
 
 ## Roadmap
 
-- Validate T3 discovery and native quota service, including managed accounts.
-- Add provider adapters and event-driven discovery.
-- Add automated Rust and QML validation, notifications and optional usage history.
+- [ ] Verify native Windows and macOS builds on real devices.
+- [ ] Expand quota adapters beyond Codex; validate managed T3 credentials.
+- [ ] Bring tray/menu-bar, global hotkeys and motion parity to native ports.
+- [ ] Add signed distribution, dependency auditing and reproducible release builds.
+- [ ] Validate optical materials and reduced-motion behaviour.
 
-The merged baseline preserves the previous backend and UI; the user's local build was reported working, but this repository bundle has not been compiled or tested with Quickshell in the packaging environment.
+## Contributing
 
-## Control centre
+Focused improvements, bug reports and provider adapters are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). For visual feedback, include OS, compositor and a redacted screenshot or recording. Never attach credentials or private cache files.
 
-The centred settings window now has a sidebar, provider artwork, per-provider and per-account visibility, appearance and behaviour controls, and project links. Analytics draws real local quota snapshots as lines or bars across 24 hours, 7, 30 or 90 days. History starts with the new daemon; previous T3 token/cost history is not imported yet. Visibility does not change T3 configuration or stop polling. History is kept locally in XDG_STATE_HOME/aether/history (default ~/.local/state/aether/history) for about 92 days. Rebuild the backend and restart its user service for this release.
+[Report a bug](https://github.com/maynkudu/aether-ai/issues/new?template=bug_report.yml) · [Request a feature](https://github.com/maynkudu/aether-ai/issues/new?template=feature_request.yml)
 
-### Appearance and typography
+## License & acknowledgements
 
-Mono is the default colour scheme. Mono Light, Midnight, Lavender, Forest, Ember, Paper and dynamic Caelestia are available in Appearance. Provider groups have nested account status and quota rows. Codex uses the original OpenAI Blossom in black or white, not the old square app icon.
+MIT © [maynkudu](https://github.com/maynkudu). See [LICENSE](LICENSE).
 
-Run `bash install.sh --ui-only --fetch-icons --fetch-fonts` to download brand assets and the curated OFL font pack. Fonts install in `$XDG_DATA_HOME/fonts/aether-ai` (default `~/.local/share/fonts/aether-ai`), with each upstream OFL license; no sudo needed. Restart the shell to see newly installed font families. Font and asset downloads are optional and do not occur at runtime. Missing assets/fonts are handled explicitly.
+Built with [Rust](https://www.rust-lang.org/), [Quickshell](https://quickshell.org/), [Qt Quick](https://www.qt.io/) and [egui](https://github.com/emilk/egui). Motion inspired by [Modulo](https://modulo.maynkudu.com/components/liquid-animations). Optional refractive rendering uses [HyprGlass](https://github.com/hyprnux/hyprglass). Provider trademarks and third-party artwork retain their respective ownership and terms.
 
+<div align="center">
 
-### Scroll fades and shortcuts
+**Intelligence, within limits.**
 
-Appearance includes toggleable scroll-edge fades and a 12–48 px fade depth. Fades follow the viewport's scroll distance, disappear at its ends, and stay off for non-overflowing content.
-
-The Shortcuts tab offers editable Hyprland modifiers/keys, duplicate detection within aether's generated bindings, and copyable legacy configuration or Lua. The defaults are Super+U (drawer), Super+Shift+U (control centre), and Super+Alt+U (analytics). Cache refresh and dismiss are optional actions, disabled in the generated defaults. Add the generated bindings to your personal Hyprland config, replacing older aether bindings, then reload. Aether never edits compositor configuration; preference changes do not remove previously installed compositor binds.
-
-Legacy Hyprland:
-```ini
-bind = SUPER, U, exec, qs -c aether ipc call dashboard toggle
-bind = SUPER SHIFT, U, exec, qs -c aether ipc call dashboard settings
-bind = SUPER ALT, U, exec, qs -c aether ipc call dashboard analytics
-```
-
-Lua Hyprland:
-```lua
-hl.bind("SUPER + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard toggle"))
-hl.bind("SUPER + SHIFT + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard settings"))
-hl.bind("SUPER + ALT + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard analytics"))
-```
-
-IPC also supports `dashboard refresh`, `dashboard dismiss`, and `dashboard shortcuts`. Refresh reads the existing cache/history, not provider APIs. Within the focused control centre, Ctrl+1 through Ctrl+8 navigate the sidebar; Ctrl+R refreshes the view and Escape dismisses it. These local shortcuts may be disabled in Settings.
-
-### Platforms
-
-The current implementation targets Linux on Wayland, primarily Hyprland. The QML frontend uses Quickshell's Wayland layer-shell APIs, and the service installer uses systemd. The Rust backend also uses Unix file permissions and Linux-oriented discovery paths. macOS and Windows are not supported by this release; a native port requires a platform-specific window/hotkey implementation, service and filesystem adapters. The portable quota and analytics logic can be shared rather than rewriting it. No Caelestia requirement.
-
-### Automatic updates
-
-Run a full install from a clean Git checkout once. The installer installs the user-local updater and systemd timer, and records the installed commit. The timer is enabled but does no network work until **Updates → Automatically install updates** is enabled. Stable is the default channel; it follows the latest published non-prerelease GitHub release with a vMAJOR.MINOR.PATCH tag. Development follows main commits. Until the first release exists, Stable reports that there is no release. The updater uses only the official repository, an isolated bare Git cache and temporary build directory; it never modifies the developer checkout or credentials. Updates must be descendants of the installed commit. It builds before replacing the binary, shell and unit files, restarts the quota daemon and restores prior files on installation errors. Quickshell may reload its configuration; if not, restart it manually. Runtime QML validity is not automatically proven by the build, so Development is opt-in.
-
-Manual commands: `aether-update status`, `aether-update check development`, `aether-update apply development`, `aether-update rollback`. One previous build is retained locally for rollback; the rolled-back commit is excluded from automatic reinstall until a newer commit arrives or an explicit installation is requested. Installation launched from the UI is detached so QML reload does not kill the updater. Disable the timer with `systemctl --user disable --now aether-update.timer` if desired. A full manual reinstall re-enables the timer, but the automatic-install preference remains authoritative. Manual UI-only installs do not advance the full-build receipt. The updater needs Python 3.12+, Git, Cargo, systemd and network access. Third-party artwork and fonts are not downloaded during updates.
-
-### Liquid motion
-
-Appearance → Motion offers Liquid (default), Smooth and Reduced. Inspired by Modulo's interruptible analytic springs, the drawer and settings window grow with separate shell/content layers; the sidebar has a moving selection capsule; buttons, switches and slider thumbs have spring-driven motion. Qt Quick FrameAnimation ticks only while spring values are moving. The UI retains native QML, and text and icon geometry remain unscaled. This is an adaptation of the design principles, not an embedded web library. Reduced disables the new spring transitions; some existing colour and quota transitions may remain. See `https://modulo.maynkudu.com/components/liquid-animations` for the original design reference.
-
-### Fluid UI refinement
-
-All ordinary settings selectors use one native liquid-styled ComboBox (including fonts, palettes, layout, motion mode, shortcut modifiers/keys and update channels). Analytics view switches remain quick-access controls. Default motion is 1100 ms (previous exact default 820 ms migrates once; custom durations are retained). The drawer grows from the selected corner/edge toward the screen, without resizing its content layout. Settings pages reveal left-to-right with staggered sections and a progressive title reveal. Smooth mode uses more heavily damped springs. Reduced remains available.
-
-Providers are grouped as first-party agents, harnesses/routing platforms, aggregators and other providers. OpenRouter is grouped with harness/routing tools for convenience, not described as an agent harness. FreeGG uses AgentRouter's artwork at the maintainer's request; account identity and visibility remain separate. GitHub uses its official Octicons mark; see brand sources.
-
-#### Glass materials
-
-See the Liquid Glass setup below for the optional refractive compositor integration. Frosted Glass continues to use ordinary compositor blur for `aether-drawer` and `aether-settings`.
-
-### Liquid dropdowns, slower reveals and surface materials
-
-All selectors use a shared native ComboBox with the original Feather chevron, pointer and keyboard highlights, and independently clipped top-left-to-bottom-right popup growth. Palette selection uses a two-column swatch grid when room permits. Fonts render in their actual families. Page content reveals more slowly than the previous version. The GitHub and shortcut controls have persistent tonal surfaces and borders.
-
-Choose **Appearance → Surface material**: Solid (default), Frosted Glass (existing compositor-blur material), or Liquid Glass (real compositor refraction). Previous glass preference migrates to Frosted, not Liquid. Liquid uses a compatible [HyprGlass](https://github.com/hyprnux/hyprglass) plugin with its live contour layer renderer. It samples the actual desktop framebuffer behind the app rather than screenshots or a simulated blur. It is optional and never installed automatically. The app checks `hyprctl -j hyprglass status` for an active layer renderer; if unavailable, it renders Solid. The status cannot prove the per-namespace configuration is correct. The UI offers a copyable Lua preset, adjustable tint, refraction, chromatic dispersion and lens height. The optical sliders update the generated Lua; apply that preset and reload the compositor for the optical changes to take effect. Merge this preset into your existing plugin configuration; use `hyprctl layers` to confirm namespace names and `hyprctl configerrors` to check your config. Use compatible plugin releases and never bypass ABI checks. Newer contour/lens options require recent HyprGlass releases. Legacy Hyprland configurations need the corresponding version's plugin syntax. No compositor files are modified. The `aether-liquid-drawer` and `aether-liquid-settings` namespaces are separate from normal/frosted layers. Restart aether when switching into or out of Liquid, because a layer-shell namespace cannot be changed after connection. This integration requires local compositor testing; neither optical quality nor GPU performance is verified here.
-
-## Development and releases
-
-See [release engineering](docs/RELEASING.md) and [cross-platform architecture](docs/ARCHITECTURE.md). CI runs on main, pull requests and version tags. A stable release is drafted only after checks succeed, then published manually. Windows and macOS experimental artifacts are built by the native CI matrix; see the desktop preview guide.
-
-Caelestia requires an active standard `qs -c caelestia` instance and a valid scheme; Liquid Glass requires a compatible active HyprGlass layer renderer. Both are visibly disabled when unavailable, with tooltips and setup guidance. The renderer check does not prove the layer whitelist is correct. Upward dropdowns grow from bottom-left and downward ones from top-left.
-
-## Windows and macOS preview
-
-The repository is now a Cargo workspace with shared `aether_core` and a native desktop application in [apps/desktop](apps/desktop/README.md). Windows x64, Apple Silicon and Intel macOS CI produce experimental ZIP artifacts. Download them only from successful builds. The existing Linux installer, Quickshell configuration and updater paths remain unchanged. These ports currently provide Codex quota polling, history charts, account visibility and two monochrome themes; they do not yet offer Linux feature parity, native installers or global desktop integration.
+</div>

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Documentation and startup fix
+
+- Rename the dropdown's custom height property to avoid overriding Qt Popup's final property.
+- Redesign the README with original SVG illustrations, platform and configuration guides, contribution and security policies, and issue/PR templates.
+
 ### Cross-platform preview
 
 - Correct upward dropdown growth: bottom-left to top-right; downward remains top-left to bottom-right.
