@@ -6,7 +6,7 @@ Pre-1.0 semantic versioning: patch for fixes, minor for features; 1.0 is the sta
 
 CI automatically runs only on version-tag pushes (`v*`), or manually through Actions → CI and releases → Run workflow. Normal branch pushes and pull requests do not start hosted CI. The separate Website checks workflow follows the same trigger policy. A manual application run builds and tests without drafting a release. Website checks are reviewed separately from the native release gate.
 
-Application CI validates matching Cargo/QML versions, shell/Python syntax, Cargo tests and release build, isolated mock Codex quota/history/stale-cache behavior, and headless Sway/Quickshell startup and IPC. It produces source and Arch x86_64 binary archives, plus Windows and macOS preview ZIPs, with SHA256SUMS on releases. Tag-only release job additionally verifies ancestry on main, tag/version match and a nonempty dated changelog section before drafting the GitHub release. Maintainer publishes only after review and actual desktop smoke testing.
+Application CI validates matching Cargo/QML versions, shell/Python syntax, Cargo tests and release build, isolated mock Codex quota/history/stale-cache behavior, and headless Sway/Quickshell startup and IPC. It produces source and Arch x86_64 binary archives, plus Windows and macOS preview ZIPs and macOS drag-to-Applications DMGs, with SHA256SUMS on releases. Tag-only release job additionally verifies ancestry on main, tag/version match and a nonempty dated changelog section before drafting the GitHub release. Maintainer publishes only after review and actual desktop smoke testing.
 
 ## Prepare a release
 
@@ -23,6 +23,23 @@ A small validation job checks tags, notes, ancestry and a tracked Cargo.lock bef
 ### First alpha candidate
 
 The dated `0.2.0-alpha.1` notes are prepared. From a clean main checkout, run `cargo generate-lockfile`, `python3 scripts/test_release_check.py`, and `python3 scripts/release_check.py --tag v0.2.0-alpha.1`. Commit and push the generated Cargo.lock, then explicitly create/push the alpha tag when ready. Do not run the full matrix for ordinary feature commits. Review the generated draft and smoke-test native integrations before publishing.
+
+## macOS distribution and Gatekeeper
+
+The macOS matrix creates both a DMG for installation and the existing ZIP for the native updater. The disk image includes the app and an Applications shortcut; CI verifies its contents and includes the image in SHA256SUMS. A DMG does not make an ad-hoc signature trusted by Gatekeeper.
+
+For trusted public distribution, enroll in the Apple Developer Program, obtain a Developer ID Application certificate with its private key, sign the application with hardened runtime and secure timestamps, sign the DMG, submit it to Apple's notarization service, and staple and validate the notarization ticket. The updater ZIP must contain the same Developer ID-signed, notarized app. Before shipping signed updates, require verification of the developer identity and Gatekeeper assessment in the updater; checksum and ad-hoc signature checks alone are not proof of publisher identity. Never put signing keys, certificate passwords, or Apple credentials in source control. Use protected GitHub Actions secrets when automating this process. No Apple credentials are configured by this change, and existing CI output remains ad-hoc signed.
+
+See [Apple Developer ID](https://developer.apple.com/developer-id/) and [notarization documentation](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution). Do not instruct users to bypass actual malware detections.
+
+To create a DMG from a trusted existing ZIP on a Mac without rebuilding:
+
+```bash
+ditto -x -k aether-macos-arm64.zip extracted
+bash scripts/package-macos-dmg.sh extracted/package/aether.ai.app aether-macos-arm64.dmg
+```
+
+Use the Intel ZIP/name on Intel Macs. This does not notarize the app or change the existing release.
 
 ## Limitations
 

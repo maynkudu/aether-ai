@@ -103,10 +103,10 @@ Install and authenticate the native Codex CLI first. After a successful native b
 | Target | Package |
 |---|---|
 | Windows x64 | `aether-windows-x64.zip` |
-| Apple Silicon | `aether-macos-arm64.zip` |
-| Intel Mac | `aether-macos-x64.zip` |
+| Apple Silicon | `aether-macos-arm64.dmg` (or ZIP for older releases) |
+| Intel Mac | `aether-macos-x64.dmg` (or ZIP for older releases) |
 
-Extract the archive and launch `aether-desktop.exe` or `aether.ai.app`. Windows builds are unsigned; macOS builds are ad-hoc signed, not notarized. Only run builds whose provenance you trust. Actions artifacts may require GitHub sign-in and can expire.
+On Windows extract the archive and launch `aether-desktop.exe`. On macOS open the DMG, drag `aether.ai.app` to Applications and launch it there (older releases provide ZIPs). Windows builds are unsigned; macOS builds are ad-hoc signed, not notarized. Only run builds whose provenance you trust. Actions artifacts may require GitHub sign-in and can expire.
 
 Build from source:
 

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Package Apple Silicon and Intel macOS builds as drag-to-Applications DMGs in addition to updater ZIPs; verify disk image contents and include both in release checksums. DMGs remain ad-hoc signed at the app level until Developer ID signing and Apple notarization are configured.
+
 ## [0.2.0-alpha.1] - 2026-11-25
 
 First public alpha candidate. The release is a prerelease, not a stable build.

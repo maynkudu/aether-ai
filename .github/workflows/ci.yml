@@ -208,6 +208,7 @@ jobs:
           codesign --force --sign - "package/aether.ai.app"
           codesign --verify "package/aether.ai.app"
           ditto -c -k --sequesterRsrc --keepParent package "dist/aether-${{ matrix.platform }}.zip"
+          bash scripts/package-macos-dmg.sh "package/aether.ai.app" "dist/aether-${{ matrix.platform }}.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: aether-${{ matrix.platform }}
@@ -246,7 +247,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         shell: bash
         run: |
-          (cd dist && sha256sum -c SHA256SUMS && sha256sum *.tar.gz *.zip > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS && sha256sum *.tar.gz *.zip *.dmg > SHA256SUMS)
           flags=(--draft)
           case "$TAG" in
             *-alpha.*|*-beta.*|*-rc.*) flags+=(--prerelease) ;;
