@@ -1,31 +1,40 @@
 # Changelog
 
-## Unreleased — Dropdown polish and refractive material
+## [Unreleased]
+
+### Release engineering and interaction fixes
+
+- Upward dropdowns grow from bottom-right; downward dropdowns grow from top-left. Direction-aware chevrons and available-space sizing.
+- Disable Caelestia without an active standard shell and usable palette; disable Liquid Glass without an active HyprGlass layer renderer. Explanatory tooltips and setup links, with existing safe fallbacks.
+- Linux CI, mock Codex integration tests, headless Quickshell smoke checks, gated draft releases with versioned notes and SHA256 checksums, and monorepo architecture guidance.
+- Stabilize dropdown and read-only text focus.
+
+### Dropdown polish and refractive material
 
 - Slower page stagger, permanent GitHub and shortcut surfaces, original Feather chevrons, hover/keyboard option states, top-left clipped dropdown growth and grid palette previews.
 - Separate Solid, Frosted and Liquid Glass materials. Optional real compositor refraction via HyprGlass contour layers, readiness status, copyable Lua configuration and tint slider; safe solid fallback, no automatic plugin installation or compositor edits.
 
-## Unreleased — Fluid control refinement
+### Fluid control refinement
 
 - Shared liquid-style native dropdowns for appearance, typography, shortcut choices and update channels.
 - Slower 1100 ms default, damped corner-anchored growth with fixed content coordinates, left-to-right page clipping and staggered sections. Existing custom speed settings preserved.
 - Provider categories, shared FreeGG/AgentRouter artwork by maintainer request, official GitHub mark in navigation and About.
 - Optional translucent glass surfaces with compositor blur namespaces; no screen refraction or compositor edits. Backend/updater unchanged.
 
-## Unreleased — Liquid motion and updater
+### Liquid motion and updater
 
 - Native analytic springs inspired by Modulo: interruptible shell growth, separately staggered content, sliding navigation pill, elastic button/switch/slider details. Liquid, Smooth and Reduced motion modes.
 - Updates tab and local updater with Stable releases and Development commits, opt-in installation, six-hour user timer, source ancestry checks, isolated builds and restoration on install errors and one previous-build rollback. No release is published by this change.
 - Ctrl+7 opens Updates; Ctrl+8 opens About. Existing provider/backend logic unchanged.
 
-## Unreleased — Scroll polish and shortcuts
+### Scroll polish and shortcuts
 
 - Added viewport-relative, theme-aware top/bottom scroll fades for the drawer and all settings tabs; configurable depth and enable toggle.
 - Added a Shortcuts tab with persistent desktop binding choices, duplicate detection, and copyable Hyprland legacy/Lua configuration. No compositor files changed automatically.
 - Added focused-window Ctrl+1–7 navigation, Ctrl+R cache refresh, Escape dismiss, and IPC actions for analytics, refresh, dismiss and shortcuts.
 - Documented Linux/Wayland scope and future native-platform port requirements. Backend unchanged.
 
-## Unreleased — Appearance and provider polish
+### Appearance and provider polish
 
 - Default Mono, Mono Light and five additional built-in/dynamic palettes; live theme switching, contrast-aware controls and reset to Mono.
 - Curated Google Fonts typography selector, live preview, optional user-local font installer with upstream OFL licenses.

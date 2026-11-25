@@ -218,7 +218,24 @@ ShellRoot {
         {id:"paper",name:"Paper",note:"Warm ivory · graphite",swatch:["#f8f5ef","#72523b","#70634c"],light:true,p:{surface:"#f8f5ef",onSurface:"#262019",surfaceContainer:"#eee9df",primaryContainer:"#e7d8c6",outlineVariant:"#cfc4b6",surfaceContainerHighest:"#e1d8cb",primary:"#72523b",tertiary:"#70634c",onSurfaceVariant:"#645b51",error:"#a52d2d",onPrimaryContainer:"#352419"}}
     ]
     property var selectedScheme: schemeChoices.find(x => x.id === prefs.colorScheme) || schemeChoices[0]
-    property bool themeActive: prefs.colorScheme === "caelestia" && !!palette.surface && !!palette.onSurface
+    property bool caelestiaRunning: false
+    property bool caelestiaAvailable: caelestiaRunning && !!palette.surface && !!palette.onSurface
+    property bool themeActive: prefs.colorScheme === "caelestia" && caelestiaAvailable
+    property string caelestiaReason: "Install and start Caelestia Shell and generate its colour scheme. Aether requires a running standard caelestia Quickshell instance and a readable palette."
+    Process {
+        id: caelestiaProbe
+        command: ["qs", "-c", "caelestia", "list", "-j"]
+        stdout: StdioCollector { onStreamFinished: {
+            try { let instances = JSON.parse(text); root.caelestiaRunning = Array.isArray(instances) && instances.some(i => Number(i.pid) > 0) }
+            catch(e) { root.caelestiaRunning = false }
+        } }
+        onExited: (code, status) => { if (code !== 0) root.caelestiaRunning = false }
+    }
+    Timer {
+        interval: 12000; repeat: true; triggeredOnStart: true
+        running: root.settingsOpen || prefs.colorScheme === "caelestia"
+        onTriggered: if (!caelestiaProbe.running) caelestiaProbe.running = true
+    }
     property bool lightTheme: themeActive ? schemeMode === "light" : !!selectedScheme.light
     property var activePalette: themeActive ? palette : selectedScheme.p || ({})
     property color onAccent: tone("onPrimary", lightTheme ? "#ffffff" : "#101010")
@@ -312,6 +329,7 @@ ShellRoot {
     function checkRefraction() { if (!glassProbe.running) glassProbe.running = true }
     Process {
         id: glassProbe
+        onExited: (code, status) => { if (code !== 0) { root.refractionReady = false; root.refractionStatus = "Compatible HyprGlass renderer unavailable" } }
         command: ["hyprctl", "-j", "hyprglass", "status"]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -329,7 +347,7 @@ ShellRoot {
     }
     Timer {
         interval: 12000; repeat: true; triggeredOnStart: true
-        running: root.requestedMaterial === "liquid" || root.effectiveMaterial === "liquid"
+        running: root.settingsOpen || root.requestedMaterial === "liquid" || root.effectiveMaterial === "liquid"
         onTriggered: root.checkRefraction()
     }
     property color glassEdge: Qt.rgba(foreground.r,foreground.g,foreground.b,lightTheme ? 0.16 : 0.23)
@@ -893,6 +911,18 @@ ShellRoot {
         property bool fontPreview: false
         property bool themeGrid: false
         property bool prominent: false
+        property var unavailableReason: function(i) { return "" }
+        property bool prefersAbove: {
+            // Scroll and resize changes invalidate the mapped position.
+            let scrollY = pageScroll.contentY
+            let panelH = settingsPanel.height
+            let panelW = settingsPanel.width
+            let p = mapToItem(null,0,0)
+            let desired = Math.min(themeGrid ? 320 : 300,liquidPopup.fullHeight)
+            let below = Math.max(0,panelH-p.y-height-14)
+            let upper = Math.max(0,p.y-14)
+            return below < desired && upper > below
+        }
         implicitHeight: 44
         font.family: root.sans
         font.pixelSize: 13
@@ -919,7 +949,7 @@ ShellRoot {
             width: 19; height: 19
             x: liquidSelect.width-width-14; y: (liquidSelect.height-height)/2
             ink: liquidSelect.enabled ? root.foreground : root.muted
-            rotation: liquidSelect.popup.visible ? 180 : 0
+            rotation: liquidPopup.visible ? (liquidPopup.above ? 0 : 180) : (liquidSelect.prefersAbove ? 180 : 0)
             transformOrigin: Item.Center
             Behavior on rotation { NumberAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 480; easing.type: Easing.InOutCubic } }
         }
@@ -928,7 +958,15 @@ ShellRoot {
             required property int index
             required property string modelData
             property bool chosen: liquidSelect.currentIndex === index
-            property bool over: hovered || liquidSelect.highlightedIndex === index
+            property string reason: liquidSelect.unavailableReason(index)
+            property bool unavailable: reason.length > 0
+            enabled: !unavailable
+            property bool over: !unavailable && (hovered || liquidSelect.highlightedIndex === index)
+            HoverHandler { id: optionHover }
+            ToolTip.visible: optionRow.unavailable && (optionHover.hovered || optionRow.hovered)
+            ToolTip.delay: 450
+            ToolTip.timeout: 12000
+            ToolTip.text: optionRow.reason
             property var scheme: liquidSelect.themeGrid ? root.schemeChoices[index] : null
             hoverEnabled: true
             focusPolicy: Qt.NoFocus
@@ -938,6 +976,7 @@ ShellRoot {
             highlighted: liquidSelect.highlightedIndex === index
             contentItem: RowLayout {
                 spacing: 10
+                opacity: optionRow.unavailable ? 0.45 : 1
                 ThemeSwatch { visible: !!optionRow.scheme; colors: optionRow.scheme ? optionRow.scheme.swatch : ["#000000","#ffffff","#999999"] }
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 3
@@ -954,7 +993,7 @@ ShellRoot {
                         font.pixelSize: 10; color: root.muted; elide: Text.ElideRight
                     }
                 }
-                MText { visible: optionRow.chosen; text: "✓"; font.pixelSize: 14; color: root.primary }
+                MText { visible: optionRow.unavailable || optionRow.chosen; text: optionRow.unavailable ? "!" : "✓"; font.weight: Font.DemiBold; font.pixelSize: 14; color: optionRow.unavailable ? root.muted : root.primary }
             }
             background: Rectangle {
                 radius: 14
@@ -969,13 +1008,14 @@ ShellRoot {
             // Keep popups inside the existing layer-shell surface; no native popup window.
             popupType: Popup.Item
             property bool above: false
+            property real availableHeight: Math.max(1,settingsPanel.height-28)
             property int columns: liquidSelect.themeGrid && width >= 340 ? 2 : 1
             property real cell: liquidSelect.themeGrid ? 72 : 44
             property real growth: 0
             property real shownContent: root.quintic((growth-0.24)/0.76)
             property real fullHeight: Math.ceil(liquidSelect.count/columns)*cell+12
             width: liquidSelect.width
-            height: Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight,Math.max(100,settingsPanel.height-32))
+            height: Math.max(1,Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight,availableHeight))
             y: above ? -height-6 : liquidSelect.height+6
             margins: 8
             padding: 6
@@ -984,13 +1024,17 @@ ShellRoot {
                 if (root.activeDropdown && root.activeDropdown !== liquidPopup) root.activeDropdown.close()
                 root.activeDropdown = liquidPopup
                 let point = liquidSelect.mapToItem(null,0,0)
-                above = point.y + liquidSelect.height + height + 6 > settingsPanel.height && point.y >= height+6
+                let below = Math.max(0,settingsPanel.height-point.y-liquidSelect.height-14)
+                let upper = Math.max(0,point.y-14)
+                above = below < Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight) && upper > below
+                availableHeight = above ? upper : below
             }
             onClosed: if (root.activeDropdown === liquidPopup) root.activeDropdown = null
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
             background: Item {
                 Rectangle {
-                    anchors.top: parent.top; anchors.left: parent.left
+                    x: liquidPopup.above ? parent.width-width : 0
+                    y: liquidPopup.above ? parent.height-height : 0
                     width: Math.max(1,parent.width*liquidPopup.growth)
                     height: Math.max(1,parent.height*root.heightProgress(liquidPopup.growth))
                     radius: root.liquidRadius(width,height,liquidPopup.growth,20)
@@ -1001,12 +1045,15 @@ ShellRoot {
             contentItem: Item {
                 id: dropdownContent
                 Item {
-                    anchors.left: parent.left; anchors.top: parent.top
+                    x: liquidPopup.above ? parent.width-width : 0
+                    y: liquidPopup.above ? parent.height-height : 0
                     width: parent.width*liquidPopup.growth
                     height: parent.height*root.heightProgress(liquidPopup.growth)
                     clip: true
                     GridView {
                         id: liquidGrid
+                        // Keep content at its final coordinates during clipping.
+                        x: -parent.x; y: -parent.y
                         width: dropdownContent.width; height: dropdownContent.height
                         clip: true
                         opacity: liquidPopup.shownContent
@@ -1259,14 +1306,16 @@ ShellRoot {
                                     }
                                     LiquidSelect {
                                         Layout.fillWidth: true
+                                        id: schemeSelector
                                         themeGrid: true
+                                        unavailableReason: function(i) { return root.schemeChoices[i] && root.schemeChoices[i].id === "caelestia" && !root.caelestiaAvailable ? root.caelestiaReason : "" }
                                         model: root.schemeChoices.map(x => x.name)
                                         currentIndex: Math.max(0,root.schemeChoices.findIndex(x => x.id === prefs.colorScheme))
-                                        onActivated: prefs.colorScheme = root.schemeChoices[index].id
+                                        onActivated: { if (unavailableReason(index)) { currentIndex = Math.max(0,root.schemeChoices.findIndex(x => x.id === prefs.colorScheme)); return } prefs.colorScheme = root.schemeChoices[index].id }
                                     }
                                 }
                                 Description { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
-                                    visible: prefs.colorScheme === "caelestia" && !root.themeActive; text: "Caelestia palette unavailable. Using the Mono fallback." }
+                                    visible: !root.caelestiaAvailable; text: prefs.colorScheme === "caelestia" ? "Caelestia unavailable · using Mono. " + root.caelestiaReason : "Caelestia unavailable · requires a running shell and palette." }
                                 RowLayout { opacity: root.pageStage(7); transform: Translate { x: -18*(1-root.pageStage(7)); y: -5*(1-root.pageStage(7)) }
                                     MText { text: "Drawer width · " + prefs.layoutWidth + " px"; Layout.fillWidth: true } MSlider { from: 360; to: 560; stepSize: 10; value: prefs.layoutWidth; onMoved: prefs.layoutWidth = Math.round(value) } }
                                 RowLayout { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
@@ -1277,10 +1326,29 @@ ShellRoot {
                                     MText { text: "Material"; Layout.fillWidth: true }
                                     LiquidSelect {
                                         Layout.preferredWidth: 200
+                                        unavailableReason: function(i) { return i === 2 && !root.refractionReady ? "Requires Hyprland and a compatible HyprGlass plugin with its layer renderer enabled. Install the plugin, enable layers, then check renderer below." : "" }
                                         model: ["Solid","Frosted Glass","Liquid Glass"]
                                         currentIndex: Math.max(0,["solid","frosted","liquid"].indexOf(root.requestedMaterial))
-                                        onActivated: { prefs.materialMode = ["solid","frosted","liquid"][index]; if(index === 2) root.checkRefraction() }
+                                        onActivated: { if (unavailableReason(index)) { currentIndex = Math.max(0,["solid","frosted","liquid"].indexOf(root.requestedMaterial)); return } prefs.materialMode = ["solid","frosted","liquid"][index]; if(index === 2) root.checkRefraction() }
                                     }
+                                }
+                                ColumnLayout {
+                                    visible: !root.refractionReady && root.requestedMaterial !== "liquid"
+                                    Layout.fillWidth: true; spacing: 8; opacity: root.pageStage(11)
+                                    Description { text: "Liquid Glass unavailable · " + root.refractionStatus + ". Install a compatible HyprGlass plugin and enable its layer renderer." }
+                                    Choice { label: "Check renderer"; enabled: !glassProbe.running; onChosen: root.checkRefraction() }
+                                    LinkRow { label: "HyprGlass setup & compatibility"; url: "https://github.com/hyprnux/hyprglass" }
+                                    // The user must be able to enable the layer renderer
+                                    // before the material itself becomes selectable.
+                                    TextArea {
+                                        id: prerequisitePreset
+                                        Layout.fillWidth: true; Layout.preferredHeight: Math.min(160,Math.max(80,contentHeight+24))
+                                        text: root.liquidConfig; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
+                                        focusPolicy: Qt.NoFocus; activeFocusOnPress: false
+                                        color: root.foreground; font.family: root.monoFont; font.pixelSize: 11; padding: 12
+                                        background: Rectangle { radius: 16; color: root.cardColor; border.width: 1; border.color: root.outline }
+                                    }
+                                    Choice { label: "Copy setup Lua"; elevated: true; onChosen: { prerequisitePreset.selectAll(); prerequisitePreset.copy() } }
                                 }
                                 RowLayout {
                                     visible: root.requestedMaterial === "frosted"; opacity: root.pageStage(11)

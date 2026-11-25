@@ -1,0 +1,93 @@
+name: CI and releases
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aether-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+jobs:
+  linux:
+    name: Linux build and smoke
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base
+    timeout-minutes: 30
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed git rust python base-devel quickshell sway mesa dbus util-linux ttf-dejavu
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate metadata and scripts
+        shell: bash
+        run: |
+          python scripts/release_check.py
+          bash -n install.sh
+          bash -n shell/install.sh
+          bash -n scripts/ci-smoke.sh
+          python -m py_compile scripts/update.py scripts/release_check.py scripts/test_backend.py shell/fetch-brand-icons.py shell/fetch-fonts.py
+      - name: Rust build and integration tests
+        shell: bash
+        run: |
+          if [[ ! -f Cargo.lock ]]; then cargo generate-lockfile; fi
+          cargo test --locked
+          cargo build --release --locked
+          python scripts/test_backend.py target/release/aether
+      - name: Headless Quickshell startup and IPC
+        shell: bash
+        run: |
+          useradd --create-home aether-ci
+          mkdir -p /tmp/aether-ci/target/release
+          cp -a shell scripts /tmp/aether-ci/
+          cp target/release/aether /tmp/aether-ci/target/release/
+          chown -R aether-ci:aether-ci /tmp/aether-ci
+          runuser -u aether-ci -- dbus-run-session -- bash /tmp/aether-ci/scripts/ci-smoke.sh
+      - name: Package tested Linux build
+        shell: bash
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix=aether-ai/ HEAD > dist/aether-source.tar.gz
+          tar -czf dist/aether-arch-linux-x86_64.tar.gz -C target/release aether -C "$GITHUB_WORKSPACE" shell/shell.qml scripts/update.py systemd LICENSE README.md CHANGELOG.md Cargo.lock
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aether-linux
+          path: dist/
+          if-no-files-found: error
+  release:
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: [linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release tag and notes
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD origin/main
+          python3 scripts/release_check.py --tag "$TAG" --notes release-notes.md
+      - uses: actions/download-artifact@v4
+        with:
+          name: aether-linux
+          path: dist
+      - name: Verify and create draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          gh release create "$TAG" --verify-tag --draft --title "aether.ai $TAG" --notes-file release-notes.md dist/*
