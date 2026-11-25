@@ -1324,10 +1324,10 @@ ShellRoot {
                                 GridLayout {
                                     
                                     columns: 2; Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
-                                    StatCard { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }; label: "Visible accounts"; value: String(root.accounts.length) }
-                                    StatCard { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }; label: "Healthy accounts"; value: String(root.accounts.filter(a => a.status === "ok").length) }
-                                    StatCard { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }; label: "Providers"; value: String(new Set(root.accounts.map(a => a.provider)).size) }
-                                    StatCard { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }; label: "Quota history"; value: String(root.history.length) }
+                                    StatCard { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) } label: "Visible accounts"; value: String(root.accounts.length) }
+                                    StatCard { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) } label: "Healthy accounts"; value: String(root.accounts.filter(a => a.status === "ok").length) }
+                                    StatCard { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) } label: "Providers"; value: String(new Set(root.accounts.map(a => a.provider)).size) }
+                                    StatCard { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) } label: "Quota history"; value: String(root.history.length) }
                                 }
                                 SectionTitle { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     text: "Current limits" }
@@ -1444,7 +1444,7 @@ ShellRoot {
                                     text: "Install the curated font pack with bash install.sh --ui-only --fetch-fonts from the repository, then restart aether." }
                                 SectionTitle { opacity: root.pageStage(14); transform: ItemGrowth { stage: root.pageStage(14) }
                                     text: "Scrolling" }
-                                RowLayout { opacity: root.pageStage(15); transform: ItemGrowth { stage: root.pageStage(15) }; MText { text: "Trackpad speed · " + prefs.trackpadSpeed.toFixed(1) + "×"; Layout.fillWidth: true } MSlider { from: 0.8; to: 3.0; stepSize: 0.1; value: prefs.trackpadSpeed; onMoved: prefs.trackpadSpeed = Math.round(value*10)/10 } }
+                                RowLayout { opacity: root.pageStage(15); transform: ItemGrowth { stage: root.pageStage(15) } MText { text: "Trackpad speed · " + prefs.trackpadSpeed.toFixed(1) + "×"; Layout.fillWidth: true } MSlider { from: 0.8; to: 3.0; stepSize: 0.1; value: prefs.trackpadSpeed; onMoved: prefs.trackpadSpeed = Math.round(value*10)/10 } }
                                 RowLayout { opacity: root.pageStage(16); transform: ItemGrowth { stage: root.pageStage(16) }
                                     MText { text: "Scroll edge fades"; Layout.fillWidth: true } MSwitch { checked: prefs.edgeFades; onToggled: prefs.edgeFades = checked } }
                                 RowLayout { opacity: root.pageStage(17); transform: ItemGrowth { stage: root.pageStage(17) }
@@ -1459,13 +1459,13 @@ ShellRoot {
                                     MText { text: "Motion style"; Layout.fillWidth: true }
                                     LiquidSelect { Layout.preferredWidth: 180; model: ["Liquid","Smooth","Reduced"]; currentIndex: Math.max(0,["liquid","smooth","reduced"].indexOf(prefs.motionStyle)); onActivated: function(index) { prefs.motionStyle = ["liquid","smooth","reduced"][index] }}
                                 }
-                                RowLayout { opacity: root.pageStage(21); transform: ItemGrowth { stage: root.pageStage(21) }; MText { text: "Animate Wisp"; Layout.fillWidth: true } MSwitch { checked: prefs.wispMotion; enabled: prefs.motionStyle !== "reduced"; onToggled: prefs.wispMotion = checked } }
-                                Description { opacity: root.pageStage(22); transform: ItemGrowth { stage: root.pageStage(22) }; text: "Wisp is aether.ai’s mascot. Reduced motion keeps Wisp still." }
+                                RowLayout { opacity: root.pageStage(21); transform: ItemGrowth { stage: root.pageStage(21) } MText { text: "Animate Wisp"; Layout.fillWidth: true } MSwitch { checked: prefs.wispMotion; enabled: prefs.motionStyle !== "reduced"; onToggled: prefs.wispMotion = checked } }
+                                Description { opacity: root.pageStage(22); transform: ItemGrowth { stage: root.pageStage(22) } text: "Wisp is aether.ai’s mascot. Reduced motion keeps Wisp still." }
                                 RowLayout { opacity: root.pageStage(23); transform: ItemGrowth { stage: root.pageStage(23) }
                                     MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                                 RowLayout { opacity: root.pageStage(24); transform: ItemGrowth { stage: root.pageStage(24) }
                                     MText { text: "Interface motion · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 500; to: 1200; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
-                                RowLayout { opacity: root.pageStage(25); transform: ItemGrowth { stage: root.pageStage(25) }; MText { text: "Data motion · " + prefs.dataMotionMs + " ms"; Layout.fillWidth: true } MSlider { from: 1200; to: 2800; stepSize: 100; value: prefs.dataMotionMs; onMoved: prefs.dataMotionMs = Math.round(value) } }
+                                RowLayout { opacity: root.pageStage(25); transform: ItemGrowth { stage: root.pageStage(25) } MText { text: "Data motion · " + prefs.dataMotionMs + " ms"; Layout.fillWidth: true } MSlider { from: 1200; to: 2800; stepSize: 100; value: prefs.dataMotionMs; onMoved: prefs.dataMotionMs = Math.round(value) } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Providers"; Layout.fillWidth: true; spacing: 12
@@ -1570,7 +1570,7 @@ ShellRoot {
                                 Flow {
                                     Layout.fillWidth: true; spacing: 8
                                     Repeater { model: [{v:"1",n:"24h"},{v:"7",n:"7 days"},{v:"30",n:"30 days"},{v:"90",n:"90 days"}]
-                                        delegate: Choice { required property var modelData; required property int index; opacity: root.pageStage(2+index); transform: ItemGrowth { stage: root.pageStage(2+index) }; label: modelData.n; selected: root.analyticsPeriod === modelData.v; onChosen: root.analyticsPeriod = modelData.v }
+                                        delegate: Choice { required property var modelData; required property int index; opacity: root.pageStage(2+index); transform: ItemGrowth { stage: root.pageStage(2+index) } label: modelData.n; selected: root.analyticsPeriod === modelData.v; onChosen: root.analyticsPeriod = modelData.v }
                                     }
                                 }
                                 RowLayout { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
