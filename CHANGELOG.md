@@ -2,9 +2,16 @@
 
 ## [Unreleased]
 
+### Cross-platform preview
+
+- Correct upward dropdown growth: bottom-left to top-right; downward remains top-left to bottom-right.
+- Shared Rust core with platform-specific storage and Codex executable discovery; preserve Linux CLI and shell paths.
+- Native Windows and macOS desktop preview with real quotas, local history, provider visibility, light/dark modes and in-process polling.
+- CI matrix for Windows x64, Apple Silicon and Intel Macs; package experimental ZIPs and require native build jobs before drafting releases. No native signing/notarization or full Linux parity yet.
+
 ### Release engineering and interaction fixes
 
-- Upward dropdowns grow from bottom-right; downward dropdowns grow from top-left. Direction-aware chevrons and available-space sizing.
+- Upward dropdowns grow from bottom-left; downward dropdowns grow from top-left. Direction-aware chevrons and available-space sizing.
 - Disable Caelestia without an active standard shell and usable palette; disable Liquid Glass without an active HyprGlass layer renderer. Explanatory tooltips and setup links, with existing safe fallbacks.
 - Linux CI, mock Codex integration tests, headless Quickshell smoke checks, gated draft releases with versioned notes and SHA256 checksums, and monorepo architecture guidance.
 - Stabilize dropdown and read-only text focus.

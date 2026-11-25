@@ -1033,7 +1033,7 @@ ShellRoot {
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
             background: Item {
                 Rectangle {
-                    x: liquidPopup.above ? parent.width-width : 0
+                    x: 0
                     y: liquidPopup.above ? parent.height-height : 0
                     width: Math.max(1,parent.width*liquidPopup.growth)
                     height: Math.max(1,parent.height*root.heightProgress(liquidPopup.growth))
@@ -1045,7 +1045,7 @@ ShellRoot {
             contentItem: Item {
                 id: dropdownContent
                 Item {
-                    x: liquidPopup.above ? parent.width-width : 0
+                    x: 0
                     y: liquidPopup.above ? parent.height-height : 0
                     width: parent.width*liquidPopup.growth
                     height: parent.height*root.heightProgress(liquidPopup.growth)

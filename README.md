@@ -136,6 +136,10 @@ Choose **Appearance → Surface material**: Solid (default), Frosted Glass (exis
 
 ## Development and releases
 
-See [release engineering](docs/RELEASING.md) and [cross-platform architecture](docs/ARCHITECTURE.md). CI runs on main, pull requests and version tags. A stable release is drafted only after checks succeed, then published manually. No Windows/macOS binaries are advertised yet.
+See [release engineering](docs/RELEASING.md) and [cross-platform architecture](docs/ARCHITECTURE.md). CI runs on main, pull requests and version tags. A stable release is drafted only after checks succeed, then published manually. Windows and macOS experimental artifacts are built by the native CI matrix; see the desktop preview guide.
 
-Caelestia requires an active standard `qs -c caelestia` instance and a valid scheme; Liquid Glass requires a compatible active HyprGlass layer renderer. Both are visibly disabled when unavailable, with tooltips and setup guidance. The renderer check does not prove the layer whitelist is correct. Upward dropdowns grow from bottom-right and downward ones from top-left.
+Caelestia requires an active standard `qs -c caelestia` instance and a valid scheme; Liquid Glass requires a compatible active HyprGlass layer renderer. Both are visibly disabled when unavailable, with tooltips and setup guidance. The renderer check does not prove the layer whitelist is correct. Upward dropdowns grow from bottom-left and downward ones from top-left.
+
+## Windows and macOS preview
+
+The repository is now a Cargo workspace with shared `aether_core` and a native desktop application in [apps/desktop](apps/desktop/README.md). Windows x64, Apple Silicon and Intel macOS CI produce experimental ZIP artifacts. Download them only from successful builds. The existing Linux installer, Quickshell configuration and updater paths remain unchanged. These ports currently provide Codex quota polling, history charts, account visibility and two monochrome themes; they do not yet offer Linux feature parity, native installers or global desktop integration.

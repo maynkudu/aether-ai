@@ -1,19 +1,18 @@
-# One repository, multiple desktops
+# aether.ai monorepo
 
-Keep the current Linux layout (`src/`, `shell/`, `systemd/`, `scripts/`) intact until platform work begins. The planned Cargo workspace is:
-
+Current structure:
 ```text
-crates/
-  aether-core/       # account and quota models, analytics
-  aether-providers/  # reusable provider adapters
-  aether-platform/   # path, credential discovery and permissions traits
-apps/
-  linux/             # Quickshell, layer shell, systemd
-  macos/             # native window, menu bar, hotkeys, launchd
-  windows/           # native window, tray, hotkeys, startup
-design/              # shared tokens, motion and brand provenance
+Cargo.toml              # workspace + shared core package
+src/lib.rs              # aether_core: platform paths, discovery, Codex, cache
+src/history.rs          # shared history
+src/main.rs             # aether CLI / Linux daemon
+shell/                  # existing Linux Quickshell frontend
+systemd/                # existing Linux service and updater
+apps/desktop/           # native Windows/macOS frontend, shared Rust code
+  src/main.rs
+  macos/Info.plist
+scripts/                # update, integration tests, CI
+.github/workflows/      # Linux + Windows + macOS builds
 docs/
-.github/workflows/
 ```
-
-These are proposed boundaries, not shipped platforms. Core currently uses Unix file permissions and Linux discovery paths. Extract and test portable interfaces before moving code. Keep existing installer/updater paths until migration support exists. Share semantic versions and release tags; build platform-specific assets on native runners once supported. No fake Windows/macOS CI jobs. Glass rendering stays compositor-specific.
+The root package remains the default workspace member so Linux install and update commands keep their output paths. Both frontends use the same quota logic and data schema. Desktop uses eframe/egui native rendering rather than a webview. It polls in process while open. Future work can extract a separate crates/core package and platform-specific native shells without splitting the repository. Windows tray/startup, macOS menu bar/launchd, native global shortcuts, signed distribution and real platform materials are not yet implemented. No fake parity claims.

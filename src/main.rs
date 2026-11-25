@@ -1,30 +1,17 @@
-mod history;
-use serde_json::{json, Value};
-use std::{path::{Path,PathBuf}, collections::BTreeMap, time::{Duration,SystemTime,UNIX_EPOCH}};
-use tokio::{io::{AsyncBufReadExt,AsyncWriteExt,BufReader},process::Command};
-fn home()->PathBuf { PathBuf::from(std::env::var_os("HOME").expect("HOME missing")) }
-fn cache()->PathBuf { std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).unwrap_or_else(||home().join(".cache")).join("aether/usage.json") }
-fn now()->u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
-fn read(p:&Path)->Option<Value>{serde_json::from_slice(&std::fs::read(p).ok()?).ok()}
-fn expand(s:&str)->PathBuf { if let Some(p)=s.strip_prefix("~/"){home().join(p)}else{PathBuf::from(s)} }
-fn discover()->BTreeMap<PathBuf,String>{
- let mut out=BTreeMap::new(); let default=home().join(".codex");
- if default.join("auth.json").exists(){out.insert(default.clone(),"Default".into());}
- let config=std::env::var_os("AETHER_T3_SETTINGS").map(PathBuf::from);
- let candidates=vec![home().join(".t3/userdata/settings.json"),home().join(".t3code/userdata/settings.json"),home().join(".config/t3code/userdata/settings.json")];
- for p in config.into_iter().chain(candidates){if let Some(v)=read(&p){if let Some(inst)=v.get("providerInstances").and_then(Value::as_object){for (id,a) in inst {if a.get("enabled").and_then(Value::as_bool)==Some(false)||a.get("driver").and_then(Value::as_str)!=Some("codex"){continue} let c=a.get("config").unwrap_or(a); let path=["shadowHomePath","homePath"].iter().find_map(|k|c.get(k).or_else(||a.get(k)).and_then(Value::as_str).filter(|s|!s.is_empty())).map(expand).unwrap_or_else(||default.clone()); let label=a.get("displayName").or_else(||a.get("name")).and_then(Value::as_str).unwrap_or(id); out.insert(path,label.into());}}}}
- if let Ok(paths)=std::env::var("AETHER_CODEX_HOMES"){for p in std::env::split_paths(&paths){let name=p.file_name().unwrap_or_default().to_string_lossy().into_owned();out.insert(p,name);}}
- out.into_iter().map(|(p,n)|(p.canonicalize().unwrap_or(p),n)).collect()
+use aether_core::{discover,history,refresh_and_record,usage};
+use std::time::Duration;
+#[tokio::main]
+async fn main() {
+    match std::env::args().nth(1).as_deref() {
+        Some("daemon") => loop { refresh_and_record().await; tokio::time::sleep(Duration::from_secs(180)).await; },
+        Some("refresh") => println!("{}",refresh_and_record().await),
+        Some("history") => {
+            let days=std::env::args().nth(2).and_then(|s|s.parse::<u64>().ok()).unwrap_or(7).clamp(1,90);
+            println!("{}",history::query(days));
+        },
+        Some("--version")|Some("version") => println!("{}",env!("CARGO_PKG_VERSION")),
+        Some("accounts") => for(p,n)in discover(){println!("{n}\t{}",p.display());},
+        Some("usage")|Some("status") => println!("{}",usage()),
+        _ => eprintln!("aether [daemon|refresh|accounts|usage|status|history|version]")
+    }
 }
-async fn probe(path:PathBuf)->Result<Value,String>{
- let mut child=Command::new("codex").arg("app-server").env("CODEX_HOME",path).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).kill_on_drop(true).spawn().map_err(|_|"Cannot start Codex".to_string())?;
- let mut input=child.stdin.take().ok_or("No stdin")?; let mut lines=BufReader::new(child.stdout.take().ok_or("No stdout")?).lines();
- async fn send(w:&mut tokio::process::ChildStdin,v:Value)->Result<(),String>{w.write_all(format!("{}\n",v).as_bytes()).await.map_err(|_|"RPC write failed".into())}
- async fn recv(r:&mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,id:u64)->Result<Value,String>{while let Some(l)=r.next_line().await.map_err(|_|"RPC read failed")?{if let Ok(v)=serde_json::from_str::<Value>(&l){if v.get("id").and_then(Value::as_u64)==Some(id){return v.get("result").cloned().ok_or_else(||"RPC request rejected".into())}}}Err("Codex closed connection".into())}
- send(&mut input,json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"aether","version":"0.1.0"}}})).await?;recv(&mut lines,1).await?;
- send(&mut input,json!({"method":"initialized"})).await?;
- send(&mut input,json!({"id":2,"method":"account/rateLimits/read","params":{}})).await?;let result=recv(&mut lines,2).await?;let _=child.kill().await;Ok(result)
-}
-async fn refresh()->Value{let old=read(&cache()).unwrap_or(json!({}));let mut tasks=tokio::task::JoinSet::new();let sem=std::sync::Arc::new(tokio::sync::Semaphore::new(3));for (p,n) in discover(){let sem=sem.clone();tasks.spawn(async move{let _permit=sem.acquire().await.unwrap();let result=tokio::time::timeout(Duration::from_secs(20),probe(p.clone())).await; (p,n,result)});}let mut rows=vec![];while let Some(Ok((p,n,r)))=tasks.join_next().await{let id=p.to_string_lossy();let mut row=json!({"id":id,"name":n,"provider":"Codex","status":"unavailable","windows":[]});match r{Ok(Ok(v))=>{let mut windows=vec![];let limits=v.get("rateLimits").unwrap_or(&v);for key in ["primary","secondary"]{if let Some(w)=limits.get(key){if let Some(used)=w.get("usedPercent").and_then(Value::as_f64){windows.push(json!({"remaining":(100.0-used).clamp(0.0,100.0),"minutes":w.get("windowDurationMins"),"reset":w.get("resetsAt")}));}}}row["status"]=json!(if windows.is_empty(){"unavailable"}else{"ok"});row["windows"]=json!(windows);row["updated"]=json!(now());},_=>{if let Some(prev)=old.get("accounts").and_then(Value::as_array).and_then(|a|a.iter().find(|x|x.get("id")==row.get("id"))){row["windows"]=prev["windows"].clone();row["updated"]=prev["updated"].clone();row["status"]=json!("stale");}}}rows.push(row);}rows.sort_by_key(|v|v["id"].to_string());json!({"updated":now(),"accounts":rows})}
-fn save(v:&Value)->std::io::Result<()>{use std::os::unix::fs::OpenOptionsExt;use std::io::Write;let p=cache();std::fs::create_dir_all(p.parent().unwrap())?;let tmp=p.with_extension(format!("{}.tmp",std::process::id()));let mut f=std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;f.write_all(v.to_string().as_bytes())?;std::fs::rename(tmp,p)}
-#[tokio::main] async fn main(){match std::env::args().nth(1).as_deref(){Some("daemon")=>loop{let v=refresh().await;if let Err(e)=history::record(&v){eprintln!("History write: {e}")}if let Err(e)=save(&v){eprintln!("Cache write: {e}")}tokio::time::sleep(Duration::from_secs(180)).await;},Some("refresh")=>{let v=refresh().await;if let Err(e)=history::record(&v){eprintln!("History write: {e}")}save(&v).expect("cache write");println!("{v}");},Some("history")=>{let days=std::env::args().nth(2).and_then(|s|s.parse::<u64>().ok()).unwrap_or(7).clamp(1,90);println!("{}",history::query(days));},Some("--version")|Some("version")=>println!("{}",env!("CARGO_PKG_VERSION")),Some("accounts")=>{for(p,n)in discover(){println!("{n}\t{}",p.display());}},Some("usage")|Some("status")=>println!("{}",read(&cache()).unwrap_or(json!({"accounts":[],"updated":null}))),_=>eprintln!("aether [daemon|refresh|accounts|usage|status|history|version]")}}

@@ -9,3 +9,12 @@ path = "src/main.rs"
 [dependencies]
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+
+[lib]
+name = "aether_core"
+path = "src/lib.rs"
+
+[workspace]
+members = ["apps/desktop"]
+default-members = ["."]
+resolver = "2"

@@ -59,10 +59,77 @@ jobs:
           name: aether-linux
           path: dist/
           if-no-files-found: error
+  desktop:
+    name: Desktop preview (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            platform: windows-x64
+          - runner: macos-15
+            platform: macos-arm64
+          - runner: macos-15-intel
+            platform: macos-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile portable core and desktop frontend
+        shell: bash
+        run: |
+          if [[ ! -f Cargo.lock ]]; then cargo generate-lockfile; fi
+          cargo test -p aether-ai --locked
+          cargo build --release -p aether-ai -p aether-desktop --locked
+      - name: Mock Codex integration (macOS)
+        if: runner.os == 'macOS'
+        run: python3 scripts/test_backend.py target/release/aether
+      - name: Mock Codex integration (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/test_backend.py target/release/aether.exe
+      - name: Windows CLI smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:XDG_CACHE_HOME = Join-Path $env:RUNNER_TEMP "aether-ci-cache"
+          $env:XDG_STATE_HOME = Join-Path $env:RUNNER_TEMP "aether-ci-state"
+          $data = & target/release/aether.exe usage | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $null -eq $data.accounts) { throw "Cache smoke failed" }
+          $history = & target/release/aether.exe history 1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $history.source -ne "local-quota-snapshots") { throw "History smoke failed" }
+      - name: Package Windows preview
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist, package | Out-Null
+          Copy-Item target/release/aether-desktop.exe,target/release/aether.exe,LICENSE -Destination package
+          Copy-Item apps/desktop/README.md package/README.md
+          Compress-Archive -Path package/* -DestinationPath dist/aether-windows-x64.zip
+      - name: Package macOS preview
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p dist "package/aether.ai.app/Contents/MacOS"
+          cp apps/desktop/macos/Info.plist "package/aether.ai.app/Contents/"
+          cp target/release/aether-desktop "package/aether.ai.app/Contents/MacOS/"
+          cp target/release/aether "package/"
+          cp LICENSE "package/"
+          cp apps/desktop/README.md "package/README.md"
+          plutil -lint "package/aether.ai.app/Contents/Info.plist"
+          codesign --force --sign - "package/aether.ai.app"
+          codesign --verify "package/aether.ai.app"
+          ditto -c -k --sequesterRsrc --keepParent package "dist/aether-${{ matrix.platform }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aether-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error
   release:
     name: Draft GitHub release
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: [linux]
+    needs: [linux, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -83,7 +150,8 @@ jobs:
           python3 scripts/release_check.py --tag "$TAG" --notes release-notes.md
       - uses: actions/download-artifact@v4
         with:
-          name: aether-linux
+          pattern: aether-*
+          merge-multiple: true
           path: dist
       - name: Verify and create draft
         env:
@@ -91,5 +159,5 @@ jobs:
           TAG: ${{ github.ref_name }}
         shell: bash
         run: |
-          (cd dist && sha256sum -c SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS && sha256sum *.tar.gz *.zip > SHA256SUMS)
           gh release create "$TAG" --verify-tag --draft --title "aether.ai $TAG" --notes-file release-notes.md dist/*

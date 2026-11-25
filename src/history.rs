@@ -1,13 +1,13 @@
 //! Append daily quota snapshots. Never reads or stores prompts, keys, or tokens.
 use serde_json::{json, Value};
-use std::{fs,io::{self,BufRead,BufReader,Write},os::unix::fs::{DirBuilderExt,OpenOptionsExt},path::PathBuf};
-fn directory()->PathBuf { std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).unwrap_or_else(||super::home().join(".local/state")).join("aether/history") }
+use std::{fs,io::{self,BufRead,BufReader,Write},path::PathBuf};
+fn directory()->PathBuf { super::state_dir().join("history") }
 pub fn record(cache:&Value)->io::Result<()>{
     let dir=directory();
-    fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+    super::private_dir(&dir)?;
     let time=super::now();
     let day=time/86400;
-    let mut file=fs::OpenOptions::new().create(true).append(true).mode(0o600).open(dir.join(format!("{day}.jsonl")))?;
+    let mut file=super::private_options().create(true).append(true).open(dir.join(format!("{day}.jsonl")))?;
     let mut samples=Vec::new();
     if let Some(accounts)=cache["accounts"].as_array(){
         for a in accounts {
