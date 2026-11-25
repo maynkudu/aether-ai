@@ -29,7 +29,7 @@ ShellRoot {
     }
     property string version: "0.2.0"
     property string settingsTab: "Overview"
-    property var settingsPages: ["Overview","Appearance","Providers","Analytics","Behaviour","Shortcuts","About"]
+    property var settingsPages: ["Overview","Appearance","Providers","Analytics","Behaviour","Shortcuts","Updates","About"]
     property var shortcutActions: [
         {id:"toggle",label:"Toggle dashboard",note:"Open or close the quota drawer",mods:"SUPER",key:"U"},
         {id:"settings",label:"Toggle control centre",note:"Open or close settings",mods:"SUPER SHIFT",key:"U"},
@@ -82,7 +82,9 @@ ShellRoot {
     }
     function selectPage(name) {
         if (!settingsPages.includes(name)) return
+        if (settingsTab !== name && prefs.motionStyle !== "reduced") pageSpring.jump(0)
         settingsTab = name
+        if (name === "Updates") runUpdater("status")
         pageScroll.cancelFlick()
         pageScroll.contentY = pageScroll.originY
         // Reset again after the new page layout has had a chance to settle.
@@ -99,6 +101,33 @@ ShellRoot {
         if (settingsOpen) refreshHistory()
     }
     function dismissAll() { settingsOpen = false; hide() }
+    property var updateInfo: ({message:"No update check yet", installed:"", candidate:""})
+    property string updateAction: "status"
+    function runUpdater(action) {
+        if (updateReader.running) return
+        prefs.sync()
+        // Installation must survive a live QML reload or closing aether.
+        if (action === "apply" || action === "rollback") {
+            root.updateInfo = Object.assign({}, root.updateInfo, {message:"Starting " + action + "…", busy:true})
+            Quickshell.execDetached([Quickshell.env("HOME") + "/.local/bin/aether-update", action, prefs.updateChannel])
+            return
+        }
+        updateAction = action
+        updateReader.running = true
+    }
+    Timer {
+        interval: 4000; repeat: true
+        running: root.settingsOpen && root.settingsTab === "Updates"
+        onTriggered: if (!updateReader.running) root.runUpdater("status")
+    }
+    Process {
+        id: updateReader
+        command: [Quickshell.env("HOME") + "/.local/bin/aether-update", root.updateAction, prefs.updateChannel]
+        stdout: StdioCollector { onStreamFinished: {
+            try { root.updateInfo = JSON.parse(text) }
+            catch(e) { root.updateInfo = {message:"Updater unavailable. Run the full installer.", installed:"", candidate:""} }
+        } }
+    }
     property string analyticsPeriod: "7"
     property string analyticsMetric: "session"
     property var history: []
@@ -116,7 +145,7 @@ ShellRoot {
     }
     function refreshHistory() { if (!historyReader.running) historyReader.running = true }
     onAnalyticsPeriodChanged: refreshHistory()
-    onSettingsOpenChanged: if (settingsOpen) { if (!reader.running) reader.running = true; refreshHistory() }
+    onSettingsOpenChanged: if (settingsOpen) { if (!reader.running) reader.running = true; refreshHistory(); if (settingsTab === "Updates") runUpdater("status") }
     Timer { interval: 30000; repeat: true; running: root.settingsOpen; onTriggered: root.refreshHistory() }
     function series() {
         let minutes = analyticsMetric === "weekly" ? 10080 : 300
@@ -172,15 +201,56 @@ ShellRoot {
     property real animatedHeight: naturalHeight
     property real naturalHeight: Math.max(148, Math.min(drawer.height - 12, content.implicitHeight + 44))
     Behavior on animatedHeight { NumberAnimation { duration: 360; easing.type: Easing.InOutCubic } }
-    property real reveal: opened ? 1 : 0
-    Behavior on reveal {
-        NumberAnimation {
-            duration: Math.round(prefs.motionMs * (root.opened ? 1 : 0.88))
-            easing.type: Easing.BezierSpline
-            easing.bezierCurve: [0.42, 0.0, 0.20, 1.0, 1.0, 1.0]
+    // Native counterpart to Modulo's analytic, velocity-preserving spring.
+    // FrameAnimation stops at rest; no permanent animation polling.
+    component LiquidSpring: Item {
+        id: spring
+        visible: false; width: 0; height: 0
+        property real targetValue: 0
+        property real value: 0
+        property real velocity: 0
+        property real frequency: 16
+        property real damping: prefs.motionStyle === "smooth" ? 0.995 : 0.88
+        property real tolerance: 0.001
+        property bool instant: prefs.motionStyle === "reduced"
+        function jump(next) { value = next; velocity = 0 }
+        onTargetValueChanged: if (instant) jump(targetValue)
+        onInstantChanged: if (instant) jump(targetValue)
+        Component.onCompleted: jump(targetValue)
+        FrameAnimation {
+            running: !spring.instant && (Math.abs(spring.value - spring.targetValue) > spring.tolerance || Math.abs(spring.velocity) > spring.tolerance * 10)
+            onTriggered: {
+                let dt = Math.min(0.064, Math.max(0, frameTime))
+                let f = Math.max(0.1, Math.min(80, spring.frequency))
+                let z = Math.max(0.01, Math.min(0.9999, spring.damping))
+                let a = f * z, b = f * Math.sqrt(1 - z*z)
+                let x = spring.value - spring.targetValue, c = (spring.velocity + a*x) / b
+                let decay = Math.exp(-a*dt), co = Math.cos(b*dt), si = Math.sin(b*dt)
+                let next = spring.targetValue + decay*(x*co+c*si)
+                let speed = decay*((-a*x+b*c)*co+(-a*c-b*x)*si)
+                if (Math.abs(next-spring.targetValue) <= spring.tolerance && Math.abs(speed) <= spring.tolerance*10) spring.jump(spring.targetValue)
+                else { spring.velocity = speed; spring.value = next }
+            }
         }
     }
-    function smooth(t) { t = Math.max(0, Math.min(1, t)); return t*t*(3-2*t) }
+    function unit(v) { return Math.max(0, Math.min(1, v)) }
+    function smooth(t) { t = unit(t); return t*t*(3-2*t) }
+    function quintic(t) { t = unit(t); return t*t*t*(t*(t*6-15)+10) }
+    property real motionFrequency: 16 * 820 / Math.max(300, prefs.motionMs)
+    LiquidSpring { id: drawerSpring; targetValue: root.opened ? 1 : 0; frequency: root.motionFrequency }
+    property real reveal: unit(drawerSpring.value)
+    LiquidSpring { id: drawerContentSpring; targetValue: root.opened && root.reveal >= 0.64 ? 1 : 0; frequency: root.motionFrequency * (root.opened ? 1 : 2); damping: 0.95 }
+    LiquidSpring { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; frequency: root.motionFrequency * 1.35 }
+    property real settingsReveal: unit(settingsSpring.value)
+    LiquidSpring { id: settingsContentSpring; targetValue: root.settingsOpen && root.settingsReveal >= 0.66 ? 1 : 0; frequency: root.motionFrequency * (root.settingsOpen ? 1.6 : 2.5); damping: 0.95 }
+    LiquidSpring { id: pageSpring; targetValue: 1; frequency: 21; damping: 0.9 }
+    function heightProgress(p) { return prefs.motionStyle === "liquid" ? 1 - (1-p)*(1-p) : p }
+    function liquidRadius(w,h,p,finalRadius) {
+        let capsule = Math.min(w,h)/2
+        if (prefs.motionStyle !== "liquid") return Math.min(finalRadius,capsule)
+        let t = quintic((p-0.35)/0.65)
+        return Math.min(capsule,capsule*(1-t)+finalRadius*t)
+    }
     // Anchor coordinates in the stable overlay: 0 = near edge, 0.5 = centre, 1 = far edge.
     property real ax: prefs.hotspot.indexOf("left") >= 0 ? 0 : prefs.hotspot.indexOf("right") >= 0 ? 1 : 0.5
     property real ay: prefs.hotspot.indexOf("top") >= 0 ? 0 : prefs.hotspot.indexOf("bottom") >= 0 ? 1 : 0.5
@@ -190,9 +260,10 @@ ShellRoot {
     property color sessionColor: tone("primary", lightTheme ? "#222222" : "#e8e8e8")
     property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
     function stagger(i) {
-        if (!prefs.staggerEnabled) return smooth((reveal - 0.16) / 0.78)
-        let delay = 0.14 + Math.min(i, 10) * 0.045
-        return smooth((reveal - delay) / (1 - delay))
+        if (prefs.motionStyle === "reduced") return reveal
+        let p = unit(drawerContentSpring.value)
+        let delay = prefs.staggerEnabled ? Math.min(i,10)*0.04 : 0
+        return quintic((p-delay)/(1-delay)) * smooth((reveal-0.35)/0.3)
     }
     function windowFor(account, minutes) {
         let windows = account.windows || []
@@ -202,7 +273,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf" }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable" }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -278,11 +349,13 @@ ShellRoot {
             radius: 14; color: control.checked ? root.primary : root.track
             border.width: control.checked ? 0 : 1; border.color: root.outline
             Rectangle {
-                width: control.checked ? 20 : 16; height: width; radius: width / 2
+                id: switchThumb
+                LiquidSpring { id: switchSpring; targetValue: control.checked ? 1 : 0; frequency: 23; damping: 0.86 }
+                property real slide: root.unit(switchSpring.value)
+                width: 16 + 4 * slide; height: width; radius: width / 2
                 anchors.verticalCenter: parent.verticalCenter
-                x: control.checked ? parent.width - width - 4 : 6
+                x: 6 + (parent.width - width - 10) * slide
                 color: control.checked ? root.onAccent : root.muted
-                Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
             }
             Behavior on color { ColorAnimation { duration: 150 } }
         }
@@ -299,6 +372,8 @@ ShellRoot {
             x: control.leftPadding + control.visualPosition * Math.max(0, control.availableWidth - width)
             y: (control.height - height) / 2
             implicitWidth: 16; implicitHeight: 24; radius: 8; color: root.primary
+            LiquidSpring { id: sliderSpring; targetValue: control.pressed ? 1.15 : 1; frequency: 26; damping: 0.84 }
+            scale: prefs.motionStyle === "liquid" ? sliderSpring.value : 1
         }
     }
     property color danger: tone("error", lightTheme ? "#a52d2d" : "#ffffff")
@@ -411,9 +486,9 @@ ShellRoot {
             x: 6 + (root.panelWidth - width) * root.ax
             y: 6 + (drawer.height - 12 - height) * root.ay
             width: root.panelWidth * root.reveal
-            height: root.panelHeight * root.reveal
+            height: root.panelHeight * root.heightProgress(root.reveal)
             visible: root.reveal > 0.0001
-            radius: Math.min(30, width / 2, height / 2)
+            radius: root.liquidRadius(width, height, root.reveal, 30)
             color: root.surface
             border.width: 0
             clip: true
@@ -657,8 +732,14 @@ ShellRoot {
         implicitWidth: Math.max(64, choiceText.implicitWidth + 28)
         implicitHeight: 36
         radius: 18
-        color: selected ? root.primary : choiceMouse.containsMouse ? root.track : root.cardColor
-        Behavior on color { ColorAnimation { duration: 160 } }
+        color: "transparent"
+        LiquidSpring { id: buttonSpring; targetValue: choiceMouse.pressed ? 0.94 : choiceMouse.containsMouse && choice.enabled ? 1.035 : 1; frequency: 25; damping: 0.84 }
+        Rectangle {
+            anchors.fill: parent; radius: choice.radius
+            scale: prefs.motionStyle === "liquid" ? buttonSpring.value : 1
+            color: choice.selected ? root.primary : choiceMouse.containsMouse ? root.track : root.cardColor
+            Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 160 } }
+        }
         MText { id: choiceText; anchors.centerIn: parent; text: choice.label; color: choice.selected ? root.onAccent : root.foreground; font.pixelSize: 13; font.weight: Font.Medium }
         MouseArea { id: choiceMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: choice.chosen() }
     }
@@ -702,10 +783,13 @@ ShellRoot {
         WlrLayershell.keyboardFocus: root.settingsOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
         Rectangle {
             id: settingsBody
-            anchors.fill: parent; radius: 30; color: root.surface
-            opacity: root.settingsOpen ? 1 : 0; scale: root.settingsOpen ? 1 : 0.96
-            Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.InOutCubic } }
-            Behavior on scale { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
+            anchors.centerIn: parent
+            width: settingsPanel.width * root.settingsReveal
+            height: settingsPanel.height * root.heightProgress(root.settingsReveal)
+            radius: root.liquidRadius(width, height, root.settingsReveal, 30); color: root.surface
+            clip: true
+            opacity: root.smooth(root.settingsReveal/0.1)
+            visible: root.settingsReveal > 0.0001
             // Local shortcuts are active only when the settings window has focus.
             Shortcut { sequence: "Escape"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.dismissAll() }
             Shortcut { sequence: "Ctrl+1"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Overview") }
@@ -714,10 +798,15 @@ ShellRoot {
             Shortcut { sequence: "Ctrl+4"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Analytics") }
             Shortcut { sequence: "Ctrl+5"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Behaviour") }
             Shortcut { sequence: "Ctrl+6"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Shortcuts") }
-            Shortcut { sequence: "Ctrl+7"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("About") }
+            Shortcut { sequence: "Ctrl+7"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Updates") }
+            Shortcut { sequence: "Ctrl+8"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("About") }
             Shortcut { sequence: "Ctrl+R"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.refreshView() }
             RowLayout {
-                anchors.fill: parent; anchors.margins: 12; spacing: 0
+                anchors.centerIn: parent
+                width: Math.max(1,settingsPanel.width-24); height: Math.max(1,settingsPanel.height-24)
+                opacity: root.quintic(settingsContentSpring.value)
+                enabled: root.settingsOpen && opacity > 0.85
+                spacing: 0
                 Rectangle {
                     Layout.preferredWidth: settingsPanel.width < 680 ? 126 : 216
                     Layout.fillHeight: true
@@ -727,15 +816,29 @@ ShellRoot {
                         MText { text: "aether.ai"; font.pixelSize: settingsPanel.width < 680 ? 20 : 26; font.weight: Font.DemiBold; font.letterSpacing: -0.9; Layout.fillWidth: true }
                         Description { text: "Control centre"; font.pixelSize: 11 }
                         Item { Layout.preferredHeight: 12 }
-                        Repeater {
-                            model: root.settingsPages
-                            delegate: Rectangle {
-                                required property string modelData
-                                Layout.fillWidth: true; implicitHeight: 44; radius: 22
-                                color: root.settingsTab === modelData ? root.primary : navMouse.containsMouse ? root.track : "transparent"
-                                Behavior on color { ColorAnimation { duration: 150 } }
-                                MText { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData; color: root.settingsTab === parent.modelData ? root.onAccent : root.foreground; font.weight: Font.Medium; font.pixelSize: 13 }
-                                MouseArea { id: navMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.selectPage(parent.modelData) }
+                        Item {
+                            id: navigationTrack
+                            property real rowHeight: Math.max(28, Math.min(44, (settingsPanel.height-190)/root.settingsPages.length-8))
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: root.settingsPages.length * (rowHeight+8)-8
+                            LiquidSpring { id: navSpring; targetValue: Math.max(0,root.settingsPages.indexOf(root.settingsTab))*(navigationTrack.rowHeight+8); frequency: 18; damping: 0.9; tolerance: 0.05 }
+                            Rectangle {
+                                width: parent.width; height: navigationTrack.rowHeight; radius: height/2
+                                y: Math.max(0,Math.min(parent.height-height,navSpring.value))
+                                color: root.primary
+                            }
+                            Column {
+                                anchors.fill: parent; spacing: 8
+                                Repeater {
+                                    model: root.settingsPages
+                                    delegate: Rectangle {
+                                        required property string modelData
+                                        width: navigationTrack.width; height: navigationTrack.rowHeight; radius: height/2
+                                        color: root.settingsTab !== modelData && navMouse.containsMouse ? root.track : "transparent"
+                                        MText { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData; color: root.settingsTab === parent.modelData ? root.onAccent : root.foreground; font.weight: Font.Medium; font.pixelSize: 13 }
+                                        MouseArea { id: navMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.selectPage(parent.modelData) }
+                                    }
+                                }
                             }
                         }
                         Item { Layout.fillHeight: true }
@@ -760,6 +863,8 @@ ShellRoot {
                         ColumnLayout {
                             id: page
                             width: pageScroll.width; spacing: 16
+                            opacity: root.unit(pageSpring.value)
+                            transform: Translate { y: (1-root.unit(pageSpring.value))*10 }
                             ColumnLayout {
                                 visible: root.settingsTab === "Overview"; Layout.fillWidth: true; spacing: 14
                                 Description { text: "Your AI resources, in one place. All data stays on this device." }
@@ -868,6 +973,13 @@ ShellRoot {
                                 RowLayout { MText { text: "Scroll edge fades"; Layout.fillWidth: true } MSwitch { checked: prefs.edgeFades; onToggled: prefs.edgeFades = checked } }
                                 RowLayout { MText { text: "Fade depth · " + prefs.fadeDepth + " px"; Layout.fillWidth: true } MSlider { enabled: prefs.edgeFades; from: 12; to: 48; stepSize: 2; value: prefs.fadeDepth; onMoved: prefs.fadeDepth = Math.round(value) } }
                                 SectionTitle { text: "Motion" }
+                                Description { text: "Liquid uses Modulo-inspired interruptible springs and capsule-shaped surfaces. Smooth is more restrained. Reduced disables these transitions." }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Choice { label: "Liquid"; selected: prefs.motionStyle === "liquid"; onChosen: prefs.motionStyle = "liquid" }
+                                    Choice { label: "Smooth"; selected: prefs.motionStyle === "smooth"; onChosen: prefs.motionStyle = "smooth" }
+                                    Choice { label: "Reduced"; selected: prefs.motionStyle === "reduced"; onChosen: prefs.motionStyle = "reduced" }
+                                }
                                 RowLayout { MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                                 RowLayout { MText { text: "Animation · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 300; to: 1400; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
                             }
@@ -1054,7 +1166,7 @@ ShellRoot {
                                 RowLayout { MText { text: "Dismiss delay · " + prefs.dismissDelay + " ms"; Layout.fillWidth: true } MSlider { from: 100; to: 1000; stepSize: 50; value: prefs.dismissDelay; onMoved: prefs.dismissDelay = Math.round(value) } }
                                 RowLayout { MText { text: "Cache refresh · " + prefs.cacheSeconds + " s"; Layout.fillWidth: true } MSlider { from: 2; to: 30; stepSize: 1; value: prefs.cacheSeconds; onMoved: prefs.cacheSeconds = Math.round(value) } }
                                 Description { text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
-                                Choice { label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf" } }
+                                Choice { label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid" } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14
@@ -1162,6 +1274,43 @@ ShellRoot {
                                     }
                                 }
                                 Description { text: "In-app shortcuts work when the control centre has keyboard focus. The hover drawer deliberately does not steal focus." }
+                            }
+                            ColumnLayout {
+                                visible: root.settingsTab === "Updates"; Layout.fillWidth: true; spacing: 16
+                                Description { text: "Keep aether up to date from its official GitHub repository. Automatic installation is opt-in. Updates do not modify your project checkout, credentials or preferences." }
+                                Rectangle {
+                                    Layout.fillWidth: true; implicitHeight: updateCard.implicitHeight + 32; radius: 24; color: root.cardColor
+                                    ColumnLayout {
+                                        id: updateCard; anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 16; spacing: 10
+                                        SectionTitle { text: "Installed build" }
+                                        MText { text: "v" + root.version; font.pixelSize: 34; font.weight: Font.DemiBold }
+                                        Description { text: root.updateInfo.installed ? "Commit " + root.updateInfo.installed.slice(0,12) : "Commit receipt unavailable · run full installer" }
+                                        Description { text: updateReader.running && root.updateAction !== "status" ? "Checking for updates…" : root.updateInfo.message || "No update check yet" }
+                                        Description { visible: !!root.updateInfo.candidate; text: "Candidate " + String(root.updateInfo.candidate || "").slice(0,12) }
+                                        Description { visible: !!root.updateInfo.checked; text: "Last checked " + (root.updateInfo.checked || "") }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    MText { text: "Automatically install updates"; Layout.fillWidth: true }
+                                    MSwitch { checked: prefs.autoUpdate; onToggled: { prefs.autoUpdate = checked; prefs.sync() } }
+                                }
+                                SectionTitle { text: "Update channel" }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Choice { label: "Stable releases"; selected: prefs.updateChannel === "stable"; onChosen: { prefs.updateChannel = "stable"; prefs.sync(); root.runUpdater("status") } }
+                                    Choice { label: "Development"; selected: prefs.updateChannel === "development"; onChosen: { prefs.updateChannel = "development"; prefs.sync(); root.runUpdater("status") } }
+                                }
+                                Description { text: prefs.updateChannel === "stable" ? "Only published, non-prerelease GitHub releases. Until a release is published, there is no stable update." : "Tracks main commits. Development builds may introduce regressions; choose Stable if you prefer fewer changes." }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Choice { label: "Check for updates"; enabled: !updateReader.running && !root.updateInfo.busy; onChosen: root.runUpdater("check") }
+                                    Choice { label: "Install update"; enabled: !updateReader.running && !root.updateInfo.busy; onChosen: root.runUpdater("apply") }
+                                    Choice { label: "Roll back"; enabled: !updateReader.running && !root.updateInfo.busy && !!root.updateInfo.rollbackAvailable; onChosen: root.runUpdater("rollback") }
+                                }
+                                Description { text: "The systemd user timer checks every six hours when automatic installation is enabled. The updater builds before replacing files, refuses downgrades or divergent commits, and restores previous files on installation errors. A previous build is retained for manual rollback. No sudo. If Quickshell does not reload automatically, restart only aether." }
+                                LinkRow { label: "Release history ↗"; url: "https://github.com/maynkudu/aether-ai/releases" }
+                                LinkRow { label: "Development commits ↗"; url: "https://github.com/maynkudu/aether-ai/commits/main" }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "About"; Layout.fillWidth: true; spacing: 16

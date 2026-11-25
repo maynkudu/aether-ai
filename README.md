@@ -102,8 +102,18 @@ hl.bind("SUPER + SHIFT + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard se
 hl.bind("SUPER + ALT + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard analytics"))
 ```
 
-IPC also supports `dashboard refresh`, `dashboard dismiss`, and `dashboard shortcuts`. Refresh reads the existing cache/history, not provider APIs. Within the focused control centre, Ctrl+1 through Ctrl+7 navigate the sidebar; Ctrl+R refreshes the view and Escape dismisses it. These local shortcuts may be disabled in Settings.
+IPC also supports `dashboard refresh`, `dashboard dismiss`, and `dashboard shortcuts`. Refresh reads the existing cache/history, not provider APIs. Within the focused control centre, Ctrl+1 through Ctrl+8 navigate the sidebar; Ctrl+R refreshes the view and Escape dismisses it. These local shortcuts may be disabled in Settings.
 
 ### Platforms
 
 The current implementation targets Linux on Wayland, primarily Hyprland. The QML frontend uses Quickshell's Wayland layer-shell APIs, and the service installer uses systemd. The Rust backend also uses Unix file permissions and Linux-oriented discovery paths. macOS and Windows are not supported by this release; a native port requires a platform-specific window/hotkey implementation, service and filesystem adapters. The portable quota and analytics logic can be shared rather than rewriting it. No Caelestia requirement.
+
+### Automatic updates
+
+Run a full install from a clean Git checkout once. The installer installs the user-local updater and systemd timer, and records the installed commit. The timer is enabled but does no network work until **Updates → Automatically install updates** is enabled. Stable is the default channel; it follows the latest published non-prerelease GitHub release with a vMAJOR.MINOR.PATCH tag. Development follows main commits. Until the first release exists, Stable reports that there is no release. The updater uses only the official repository, an isolated bare Git cache and temporary build directory; it never modifies the developer checkout or credentials. Updates must be descendants of the installed commit. It builds before replacing the binary, shell and unit files, restarts the quota daemon and restores prior files on installation errors. Quickshell may reload its configuration; if not, restart it manually. Runtime QML validity is not automatically proven by the build, so Development is opt-in.
+
+Manual commands: `aether-update status`, `aether-update check development`, `aether-update apply development`, `aether-update rollback`. One previous build is retained locally for rollback; the rolled-back commit is excluded from automatic reinstall until a newer commit arrives or an explicit installation is requested. Installation launched from the UI is detached so QML reload does not kill the updater. Disable the timer with `systemctl --user disable --now aether-update.timer` if desired. A full manual reinstall re-enables the timer, but the automatic-install preference remains authoritative. Manual UI-only installs do not advance the full-build receipt. The updater needs Python 3.12+, Git, Cargo, systemd and network access. Third-party artwork and fonts are not downloaded during updates.
+
+### Liquid motion
+
+Appearance → Motion offers Liquid (default), Smooth and Reduced. Inspired by Modulo's interruptible analytic springs, the drawer and settings window grow with separate shell/content layers; the sidebar has a moving selection capsule; buttons, switches and slider thumbs have spring-driven motion. Qt Quick FrameAnimation ticks only while spring values are moving. The UI retains native QML, and text and icon geometry remain unscaled. This is an adaptation of the design principles, not an embedded web library. Reduced disables the new spring transitions; some existing colour and quota transitions may remain. See `https://modulo.maynkudu.com/components/liquid-animations` for the original design reference.

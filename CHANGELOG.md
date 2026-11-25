@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Liquid motion and updater
+
+- Native analytic springs inspired by Modulo: interruptible shell growth, separately staggered content, sliding navigation pill, elastic button/switch/slider details. Liquid, Smooth and Reduced motion modes.
+- Updates tab and local updater with Stable releases and Development commits, opt-in installation, six-hour user timer, source ancestry checks, isolated builds and restoration on install errors and one previous-build rollback. No release is published by this change.
+- Ctrl+7 opens Updates; Ctrl+8 opens About. Existing provider/backend logic unchanged.
+
 ## Unreleased — Scroll polish and shortcuts
 
 - Added viewport-relative, theme-aware top/bottom scroll fades for the drawer and all settings tabs; configurable depth and enable toggle.
