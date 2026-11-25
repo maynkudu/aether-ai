@@ -1,22 +1,23 @@
 # aether.ai monorepo
 
-Current structure:
+Linux / Wayland is the only active application target.
+
 ```text
-Cargo.toml              # workspace + shared core package
-src/lib.rs              # aether_core: platform paths, discovery, Codex, cache
-src/history.rs          # shared history
-src/main.rs             # aether CLI / Linux daemon
-shell/                  # existing Linux Quickshell frontend
-systemd/                # existing Linux service and updater
-apps/desktop/           # native Windows/macOS frontend, shared Rust code
-  src/main.rs
-  macos/Info.plist
-scripts/                # update, integration tests, CI
-.github/workflows/      # Linux + Windows + macOS builds
+Cargo.toml              # workspace + Rust core, root is default
+src/lib.rs              # account discovery, Codex, cache
+src/history.rs          # local history
+src/main.rs             # CLI / Linux daemon
+shell/                  # Linux Quickshell frontend
+systemd/                # Linux user service and updater
+apps/web/               # static product site
+apps/desktop/           # paused native Windows/macOS prototype
+scripts/                # update, tests and packaging
+.github/workflows/      # Linux release and website checks
 docs/
 ```
-The root package remains the default workspace member so Linux install and update commands keep their output paths. Both frontends use the same quota logic and data schema. Desktop uses eframe/egui native rendering rather than a webview. It polls in process while open. Future work can extract a separate crates/core package and platform-specific native shells without splitting the repository. Windows tray/startup, macOS menu bar/launchd, native global shortcuts and signed distribution are not yet implemented. No fake parity claims.
+
+The root package remains the default workspace member. The existing desktop prototype and shared portability code are retained for possible future work; the Linux release validator does not require desktop bundle version changes, and CI does not build those targets. The Linux installer and updater keep their existing output paths.
 
 ## Website
 
-`apps/web/` contains the static Vite product site, using the shared Wisp brand assets. Website CI is independent of the desktop release workflow. The site illustrates quota data and links to preview builds; it does not access local account state. See [website development and deployment](../apps/web/README.md).
+The static Vite site uses the shared Wisp assets, illustrates quota data and documents Linux installation. It does not access local account state. Website CI is separate from Linux releases. See [website development and deployment](../apps/web/README.md).

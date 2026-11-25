@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 
-- Package Apple Silicon and Intel macOS builds as drag-to-Applications DMGs in addition to updater ZIPs; verify disk image contents and include both in release checksums. DMGs remain ad-hoc signed at the app level until Developer ID signing and Apple notarization are configured.
+- Focus active development, distribution and release CI exclusively on Linux / Wayland; preserve Windows/macOS prototype and DMG packaging source for future development.
+- Remove native platform build jobs and release assets from future releases, decouple Linux version validation from dormant desktop metadata, and simplify website downloads and documentation.
 
 ## [0.2.0-alpha.1] - 2026-11-25
 

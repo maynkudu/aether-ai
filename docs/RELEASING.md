@@ -1,46 +1,43 @@
 # Release engineering
 
-Pre-1.0 semantic versioning: patch for fixes, minor for features; 1.0 is the stable milestone. Current development version is 0.2.0. No release was published by adding this workflow.
+Linux / Wayland is the only active release target. Windows and macOS prototypes remain in source control but are not built, packaged or supported in new releases.
 
 ## Gates
 
-CI automatically runs only on version-tag pushes (`v*`), or manually through Actions → CI and releases → Run workflow. Normal branch pushes and pull requests do not start hosted CI. The separate Website checks workflow follows the same trigger policy. A manual application run builds and tests without drafting a release. Website checks are reviewed separately from the native release gate.
+Application and website CI run only on version-tag pushes (`v*`) or explicit manual dispatch. Normal commits, main pushes and pull requests do not consume hosted CI runner time.
 
-Application CI validates matching Cargo/QML versions, shell/Python syntax, Cargo tests and release build, isolated mock Codex quota/history/stale-cache behavior, and headless Sway/Quickshell startup and IPC. It produces source and Arch x86_64 binary archives, plus Windows and macOS preview ZIPs and macOS drag-to-Applications DMGs, with SHA256SUMS on releases. Tag-only release job additionally verifies ancestry on main, tag/version match and a nonempty dated changelog section before drafting the GitHub release. Maintainer publishes only after review and actual desktop smoke testing.
+A lightweight job validates release metadata, notes, ancestry and tracked Cargo.lock before Linux compilation. The Linux job checks shell/Python syntax, Rust tests and build, mock Codex quota/history/cache integration and headless Sway/Quickshell startup and IPC. The website workflow independently checks its production build and browser interactions.
+
+The tag-triggered release job verifies the exact Linux archive checksums and creates a draft with:
+
+- `aether-arch-linux-x86_64.tar.gz`
+- `aether-source.tar.gz`
+- `SHA256SUMS`
+
+A manual application run builds and tests without drafting a release. Publish the draft only after review and Linux smoke testing. The binary archive targets Arch x86_64, not all Linux distributions.
 
 ## Prepare a release
 
-Prereleases use `v0.2.0-alpha.1`, `v0.2.0-beta.1` or `v0.2.0-rc.1` with an exact dated changelog heading such as `## [0.2.0-alpha.1] - YYYY-MM-DD`. Keep the shared Cargo/QML/macOS bundle version numeric (`0.2.0`). The workflow marks suffixed tags as GitHub prereleases; do not publish them as stable. Ordinary commits still do not trigger either workflow.
+1. Choose the shared numeric version (e.g. 0.3.0). Update root Cargo.toml and the QML version only; dormant desktop metadata does not gate Linux releases.
+2. Add an exact dated changelog heading, such as `## [0.2.0-alpha.2] - YYYY-MM-DD`. Preserve earlier release notes.
+3. If dependencies change, run `cargo generate-lockfile` and commit Cargo.lock.
+4. Run the lightweight checks locally:
+   ```bash
+   uv run --python 3.12 scripts/test_release_check.py
+   uv run --python 3.12 scripts/release_check.py --tag v0.2.0-alpha.2
+   cargo test --locked
+   ```
+5. Push the reviewed commit to main. Only when ready, create and push the new release tag:
+   ```bash
+   git tag -a v0.2.0-alpha.2 -m "aether.ai v0.2.0-alpha.2"
+   git push origin v0.2.0-alpha.2
+   ```
+6. Review CI and the generated GitHub draft. Suffixes alpha.N, beta.N and rc.N are automatically marked as prereleases. Stable releases have numeric tags without suffixes. Do not mark alpha builds as stable.
 
-1. Choose the version (e.g. 0.3.0), update root Cargo.toml, QML version, apps/desktop/Cargo.toml and both macOS Info.plist version fields.
-2. Move applicable Unreleased changes into a new dated heading: `## [0.3.0] - YYYY-MM-DD`. Preserve previous history.
-3. Commit Cargo.lock (if not yet tracked), run relevant checks locally and merge reviewed changes. If desired, manually run application and website CI on the candidate commit before tagging. Do not configure skipped automatic PR checks as mandatory branch checks unless you intend to run them manually for every PR.
-4. After local desktop testing, tag the main commit: `git tag -a v0.3.0 -m "aether.ai v0.3.0"`; `git push origin v0.3.0`.
-5. Wait for the tag-triggered application build and website checks. Review both results, the generated draft, artifacts and checksums. Publish on GitHub only when satisfied. Stable updater sees published releases; Development follows main as before.
-
-A small validation job checks tags, notes, ancestry and a tracked Cargo.lock before the expensive native build matrix. Website release checks also validate the tag before installing dependencies. The native macOS build embeds the release tag, enabling correct alpha-to-alpha and alpha-to-stable comparisons. Run `cargo generate-lockfile` and commit it after dependency changes before creating a release tag.
-
-### First alpha candidate
-
-The dated `0.2.0-alpha.1` notes are prepared. From a clean main checkout, run `cargo generate-lockfile`, `python3 scripts/test_release_check.py`, and `python3 scripts/release_check.py --tag v0.2.0-alpha.1`. Commit and push the generated Cargo.lock, then explicitly create/push the alpha tag when ready. Do not run the full matrix for ordinary feature commits. Review the generated draft and smoke-test native integrations before publishing.
-
-## macOS distribution and Gatekeeper
-
-The macOS matrix creates both a DMG for installation and the existing ZIP for the native updater. The disk image includes the app and an Applications shortcut; CI verifies its contents and includes the image in SHA256SUMS. A DMG does not make an ad-hoc signature trusted by Gatekeeper.
-
-For trusted public distribution, enroll in the Apple Developer Program, obtain a Developer ID Application certificate with its private key, sign the application with hardened runtime and secure timestamps, sign the DMG, submit it to Apple's notarization service, and staple and validate the notarization ticket. The updater ZIP must contain the same Developer ID-signed, notarized app. Before shipping signed updates, require verification of the developer identity and Gatekeeper assessment in the updater; checksum and ad-hoc signature checks alone are not proof of publisher identity. Never put signing keys, certificate passwords, or Apple credentials in source control. Use protected GitHub Actions secrets when automating this process. No Apple credentials are configured by this change, and existing CI output remains ad-hoc signed.
-
-See [Apple Developer ID](https://developer.apple.com/developer-id/) and [notarization documentation](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution). Do not instruct users to bypass actual malware detections.
-
-To create a DMG from a trusted existing ZIP on a Mac without rebuilding:
-
-```bash
-ditto -x -k aether-macos-arm64.zip extracted
-bash scripts/package-macos-dmg.sh extracted/package/aether.ai.app aether-macos-arm64.dmg
-```
-
-Use the Intel ZIP/name on Intel Macs. This does not notarize the app or change the existing release.
+The Stable Linux updater follows published non-prereleases; Development follows main. Existing alpha.1 binaries are historical. Do not move an existing tag or silently replace published assets.
 
 ## Limitations
 
-CI generates a lockfile if missing; commit it for reproducible dependencies. Signed release provenance, cargo fmt/clippy enforcement, dependency audit and real Hyprland visual interaction tests remain future gates. Headless Sway exercises startup and IPC, not visual fidelity. The native binary self-test validates embedded icon decoding and platform storage without opening a GUI. Failed Linux smoke logs are saved as a diagnostic artifact. The disposable Arch CI container removes Sway's file capabilities before launching it as an unprivileged user, avoiding Docker's capability-boundary execution failure. No change to the user's installed compositor is needed. Repository branch protection and required-check settings are managed separately in GitHub; review existing requirements after adopting release-only CI. Artifacts are Arch-targeted, not universal Linux installers; existing updater still builds from source. Windows x64, Apple Silicon and Intel macOS preview builds are now included as required jobs. macOS uses ad-hoc signing only; no notarization. Native desktop smoke testing on real machines remains required.
+Headless Sway exercises startup and IPC rather than visual fidelity. Actual Hyprland smoke testing, signed provenance, dependency auditing and reproducible release builds remain future work. Failed Linux smoke logs remain available as CI diagnostics. The disposable Arch CI container removes Sway file capabilities only inside the runner to avoid Docker capability-boundary failures.
+
+Native desktop and DMG packaging source is retained but dormant. Before resuming macOS distribution, implement Developer ID signing, notarization and updater publisher-identity verification. Before resuming Windows distribution, review signing and test on real devices.

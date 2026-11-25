@@ -17,10 +17,10 @@
 
 aether.ai brings your AI usage limits into one glanceable desktop interface. Track remaining Codex quota across multiple accounts, see how limits change over time, and keep your workflow in focus — without an inference proxy, hosted dashboard or telemetry.
 
-Built with a shared Rust core, an independent Quickshell overlay for Linux, and an experimental native Rust/egui frontend for Windows and macOS.
+Built for Linux / Wayland with a Rust core, a Quickshell overlay and a systemd user daemon.
 
 > [!NOTE]
-> **Early development (v0.2.0).** Codex is the only implemented quota adapter. Linux is the primary platform. Windows x64 and Apple Silicon / Intel macOS preview builds passed CI; physical-device testing remains pending. No stable GitHub release has been published yet.
+> **Early development (v0.2.0).** Aether is currently Linux-only, with Arch Linux and Hyprland as the primary targets. Codex is the only implemented quota adapter. Windows and macOS development and distribution are paused. No stable GitHub release has been published yet.
 
 <img src="docs/assets/interface.svg" alt="Illustration of aether control centre, quota cards, circular drawer and history" width="100%">
 
@@ -48,18 +48,11 @@ Wisp is our little companion for keeping AI quotas in view. The project is still
 
 Linux supports Liquid, Smooth and Reduced motion, with opaque theme-aware surfaces and adjustable trackpad speed. Caelestia is optional and disabled when its prerequisites are missing. See [configuration](docs/CONFIGURATION.md).
 
-## Platforms
+## Platform
 
-| | Linux (Wayland) | Windows x64 | macOS ARM64 / Intel |
-|---|---|---|---|
-| Frontend | Quickshell / Qt Quick | Rust / egui | Rust / egui |
-| Status | Primary development target | Experimental | Experimental |
-| Codex & history | Implemented | Implemented; testing pending | Implemented; testing pending |
-| Hover drawer, global hotkeys | Implemented | Planned | Experimental compact drawer and global shortcuts |
-| Theme support | Eight schemes | Seven built-in schemes | Seven built-in schemes |
-| Application updates | Opt-in updater | Planned | Experimental opt-in release updater |
+Aether is actively developed and distributed for **Linux / Wayland**. Arch Linux (x86_64) is the tested binary target; Hyprland is the primary compositor. Other compatible Wayland setups may work from source but are not guaranteed.
 
-Native previews use an independent polling worker; the macOS menu-bar preview can continue polling with the window minimized. Quit stops the process. The Linux daemon runs independently. No Electron or hosted service required.
+The Rust daemon runs independently of the Quickshell interface. Windows and macOS ports are preserved in the repository for future development, but are not currently supported, built or distributed in new releases.
 
 ### Provider support
 
@@ -96,25 +89,9 @@ qs -c aether ipc call dashboard settings
 
 [Full Linux guide →](docs/LINUX.md)
 
-### Windows & macOS
+### Release downloads
 
-Install and authenticate the native Codex CLI first. After a successful native build, download the matching experimental artifact from [GitHub Actions](https://github.com/maynkudu/aether-ai/actions).
-
-| Target | Package |
-|---|---|
-| Windows x64 | `aether-windows-x64.zip` |
-| Apple Silicon | `aether-macos-arm64.dmg` (or ZIP for older releases) |
-| Intel Mac | `aether-macos-x64.dmg` (or ZIP for older releases) |
-
-On Windows extract the archive and launch `aether-desktop.exe`. On macOS open the DMG, drag `aether.ai.app` to Applications and launch it there (older releases provide ZIPs). Windows builds are unsigned; macOS builds are ad-hoc signed, not notarized. Only run builds whose provenance you trust. Actions artifacts may require GitHub sign-in and can expire.
-
-Build from source:
-
-```bash
-cargo run -p aether-desktop --release
-```
-
-[Desktop preview guide →](apps/desktop/README.md)
+The current Linux alpha archive is available [here](https://github.com/maynkudu/aether-ai/releases/download/v0.2.0-alpha.1/aether-arch-linux-x86_64.tar.gz). The archive is Arch x86_64-specific; use the source installation guide above for setup and dependencies. Historical cross-platform preview assets are unsupported.
 
 ## CLI
 
@@ -142,7 +119,7 @@ aether-update apply development
 aether-update rollback
 ```
 
-See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engineering](docs/RELEASING.md). CI automatically validates Linux and native desktop builds on version-tag pushes before drafting a release for manual review. Website checks also run on version tags. Both workflows can be started manually; ordinary pushes and pull requests do not trigger them.
+See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engineering](docs/RELEASING.md). CI automatically validates Linux builds on version-tag pushes before drafting a release for manual review. Website checks also run on version tags. Both workflows can be started manually; ordinary pushes and pull requests do not trigger them.
 
 ## Architecture
 
@@ -164,7 +141,6 @@ See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-
 |---|---|
 | [Linux installation](docs/LINUX.md) | Setup, systemd, IPC, shortcuts, updates and troubleshooting |
 | [Configuration](docs/CONFIGURATION.md) | Themes, fonts, motion, scrolling, discovery and storage |
-| [Desktop preview](apps/desktop/README.md) | Windows and macOS setup and limitations |
 | [Architecture](docs/ARCHITECTURE.md) | Workspace structure and shared interfaces |
 | [Release engineering](docs/RELEASING.md) | CI gates, versioning, builds and publication |
 | [Changelog](CHANGELOG.md) | Development and release history |
@@ -173,9 +149,8 @@ See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-
 
 ## Roadmap
 
-- [ ] Verify native Windows and macOS builds on real devices.
 - [ ] Expand quota adapters beyond Codex; validate managed T3 credentials.
-- [ ] Validate native macOS menu bar, drawer, hotkeys and updater on physical devices; bring tray and motion parity to Windows.
+- [ ] Refine the Linux drawer, settings and compositor integration.
 - [ ] Add signed distribution, dependency auditing and reproducible release builds.
 - [ ] Validate scroll interaction and reduced-motion behaviour.
 
@@ -189,7 +164,7 @@ Focused improvements, bug reports and provider adapters are welcome. Start with 
 
 MIT © [maynkudu](https://github.com/maynkudu). See [LICENSE](LICENSE).
 
-Built with [Rust](https://www.rust-lang.org/), [Quickshell](https://quickshell.org/), [Qt Quick](https://www.qt.io/) and [egui](https://github.com/emilk/egui). Motion inspired by [Modulo](https://modulo.maynkudu.com/components/liquid-animations). Provider trademarks and third-party artwork retain their respective ownership and terms.
+Built with [Rust](https://www.rust-lang.org/), [Quickshell](https://quickshell.org/) and [Qt Quick](https://www.qt.io/). Motion inspired by [Modulo](https://modulo.maynkudu.com/components/liquid-animations). Provider trademarks and third-party artwork retain their respective ownership and terms.
 
 <div align="center">
 

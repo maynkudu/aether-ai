@@ -10,12 +10,6 @@ The optional font pack includes Inter, Manrope, Montserrat, Poppins, DM Sans, Pl
 
 Caelestia requires a running standard `qs -c caelestia` instance and a usable scheme JSON (normally ~/.local/state/caelestia/scheme.json). If unavailable, the option is disabled and existing selections fall back to Mono. Nonstandard config names are not detected automatically.
 
-Native Windows and macOS support the seven built-in palette IDs and migrate the previous light/dark preference. Caelestia remains Linux-only.
-
-On macOS, Appearance also enables optional registered global shortcuts (Cmd+Option+Shift+A/R) and a primary-display corner dwell drawer while minimized; pointer departure or Escape dismisses the drawer. Cmd+1–5 switches tabs. Closing the window minimizes if menu-bar initialization succeeds; Quit stops the process. No login agent is installed.
-
-The macOS updater is opt-in, with Stable (published non-prereleases) and Preview (including alpha/beta/RC) channels. It checks every six hours and installs a verified staged update on Quit when enabled. Source checkouts are not replaced. Install in a writable Applications directory first; no sudo is used. The release ZIP is not notarized.
-
 ## Scrolling
 
 Appearance → Scrolling controls scroll edge fades, fade depth and trackpad speed (0.8–3.0×; default 1.6×). Precision touchpad events use their pixel delta directly, including precision events classified as mouse input by Qt. Conventional wheel notches use a fixed 48 px step; the trackpad multiplier applies only to pixel deltas. Animation speed does not control scrolling.
@@ -27,7 +21,7 @@ The shared core discovers CODEX_HOME (or ~/.codex), experimental T3 settings and
 | Variable | Purpose |
 |---|---|
 | CODEX_HOME | Default Codex directory |
-| AETHER_CODEX_HOMES | Additional homes; colon on Unix, semicolon on Windows |
+| AETHER_CODEX_HOMES | Additional homes; colon-separated |
 | AETHER_T3_SETTINGS | Exact T3 settings JSON path |
 | AETHER_CODEX_BIN | Explicit trusted native CLI path |
 
@@ -39,13 +33,13 @@ Recorded remaining quota percentages, not token counts or spending. The daemon p
 
 ## Local data
 
-| Data | Linux default | macOS default | Windows default |
-|---|---|---|---|
-| Cache | ~/.cache/aether/usage.json | ~/Library/Caches/aether/usage.json | %LOCALAPPDATA%/aether/usage.json |
-| History | ~/.local/state/aether/history | ~/Library/Application Support/aether/history | %LOCALAPPDATA%/aether/history |
-| Preferences | ~/.config/quickshell/aether/preferences.ini | ~/Library/Application Support/aether/desktop-preferences.json | %LOCALAPPDATA%/aether/desktop-preferences.json |
+| Data | Linux default |
+|---|---|
+| Cache | ~/.cache/aether/usage.json |
+| History | ~/.local/state/aether/history |
+| Preferences | ~/.config/quickshell/aether/preferences.ini |
 
-XDG cache/state overrides are supported. Linux configuration respects XDG_CONFIG_HOME. Unix files use restrictive creation permissions; Windows inherits user-profile ACLs. Names and paths in cache/history are private. No telemetry or cloud storage. Optional network requests include Codex, asset retrieval and enabled update checks.
+XDG cache/state/config overrides are supported. Local files use restrictive creation permissions. Names and paths in cache/history are private. No telemetry or cloud storage. Optional network requests include Codex, asset retrieval and enabled update checks.
 
 ## Wisp
 

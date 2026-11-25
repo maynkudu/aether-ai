@@ -1,6 +1,6 @@
 # Contributing
 
-Welcome! Focused fixes, provider adapters, documentation and platform testing are appreciated.
+Welcome! Linux / Wayland fixes, provider adapters, documentation and compositor testing are appreciated. Windows and macOS prototype work is paused.
 
 1. Open an issue for substantial changes.
 2. Fork, create a descriptive branch, and keep changes focused.

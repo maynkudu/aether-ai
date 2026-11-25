@@ -3,7 +3,6 @@ import argparse
 import pathlib
 import re
 import tomllib
-import plistlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -12,11 +11,6 @@ def version():
     match = re.search(r'property string version:\s*"([^"]+)"', (ROOT/"shell/shell.qml").read_text())
     if not match or match.group(1) != v or not re.fullmatch(r"\d+\.\d+\.\d+",v):
         raise SystemExit("Cargo and QML must share a MAJOR.MINOR.PATCH version")
-    desktop = tomllib.loads((ROOT/"apps/desktop/Cargo.toml").read_text())["package"]["version"]
-    with (ROOT/"apps/desktop/macos/Info.plist").open("rb") as stream:
-        plist = plistlib.load(stream)
-    if desktop != v or plist.get("CFBundleShortVersionString") != v or plist.get("CFBundleVersion") != v:
-        raise SystemExit("Desktop and macOS bundle versions must match the shared version")
     return v
 
 def main():

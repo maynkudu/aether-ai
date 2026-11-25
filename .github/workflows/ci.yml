@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   prepare:
-    name: Validate release before matrix
+    name: Validate Linux release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,108 +116,10 @@ jobs:
           name: aether-linux
           path: dist/
           if-no-files-found: error
-  desktop:
-    needs: prepare
-    name: Desktop preview (${{ matrix.platform }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-2025
-            platform: windows-x64
-          - runner: macos-15
-            platform: macos-arm64
-          - runner: macos-15-intel
-            platform: macos-x64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Install current stable Rust
-        shell: bash
-        run: |
-          rustup update stable --no-self-update
-          rustup default stable
-          rustc -Vv
-      - name: Compile portable core and desktop frontend
-        env:
-          AETHER_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-        shell: bash
-        run: |
-          if [[ ! -f Cargo.lock ]]; then cargo generate-lockfile; fi
-          cargo test -p aether-ai --locked
-          cargo test -p aether-desktop --locked
-          cargo build --release -p aether-ai -p aether-desktop --locked
-      - name: Mock Codex integration (macOS)
-        if: runner.os == 'macOS'
-        run: python3 scripts/test_backend.py target/release/aether
-      - name: Mock Codex integration (Windows)
-        if: runner.os == 'Windows'
-        run: python scripts/test_backend.py target/release/aether.exe
-      - name: Native frontend binary self-test (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: target/release/aether-desktop --self-test
-      - name: Native frontend binary self-test (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $process = Start-Process -FilePath (Resolve-Path target/release/aether-desktop.exe) -ArgumentList "--self-test" -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Desktop self-test failed" }
-      - name: Windows CLI smoke
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:XDG_CACHE_HOME = Join-Path $env:RUNNER_TEMP "aether-ci-cache"
-          $env:XDG_STATE_HOME = Join-Path $env:RUNNER_TEMP "aether-ci-state"
-          $data = & target/release/aether.exe usage | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or -not ($data.PSObject.Properties.Name -contains "accounts")) { throw "Cache smoke failed" }
-          $history = & target/release/aether.exe history 1 | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $history.source -ne "local-quota-snapshots") { throw "History smoke failed" }
-      - name: Package Windows preview
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist, package | Out-Null
-          Copy-Item target/release/aether-desktop.exe,target/release/aether.exe,LICENSE -Destination package
-          Copy-Item apps/desktop/README.md package/README.md
-          Copy-Item docs/assets/logo.png package/logo.png
-          Compress-Archive -Path package/* -DestinationPath dist/aether-windows-x64.zip
-      - name: Package macOS preview
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          mkdir -p dist "package/aether.ai.app/Contents/MacOS"
-          cp apps/desktop/macos/Info.plist "package/aether.ai.app/Contents/"
-          cp target/release/aether-desktop "package/aether.ai.app/Contents/MacOS/"
-          cp target/release/aether "package/"
-          mkdir -p "package/aether.ai.app/Contents/Resources"
-          iconset="$(mktemp -d)/aether.iconset"
-          mkdir -p "$iconset"
-          for size in 16 32 128 256 512; do
-            sips -z "$size" "$size" docs/assets/logo.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
-            pixels=$((size * 2))
-            sips -z "$pixels" "$pixels" docs/assets/logo.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
-          done
-          iconutil -c icns "$iconset" -o "package/aether.ai.app/Contents/Resources/aether.icns"
-          cp LICENSE "package/"
-          cp apps/desktop/README.md "package/README.md"
-          plutil -lint "package/aether.ai.app/Contents/Info.plist"
-          codesign --force --sign - "package/aether.ai.app"
-          codesign --verify "package/aether.ai.app"
-          ditto -c -k --sequesterRsrc --keepParent package "dist/aether-${{ matrix.platform }}.zip"
-          bash scripts/package-macos-dmg.sh "package/aether.ai.app" "dist/aether-${{ matrix.platform }}.dmg"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: aether-${{ matrix.platform }}
-          path: dist/
-          if-no-files-found: error
   release:
     name: Draft GitHub release
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: [linux, desktop]
+    needs: [linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -238,8 +140,7 @@ jobs:
           python3 scripts/release_check.py --tag "$TAG" --notes release-notes.md
       - uses: actions/download-artifact@v4
         with:
-          pattern: aether-*
-          merge-multiple: true
+          name: aether-linux
           path: dist
       - name: Verify and create draft
         env:
@@ -247,9 +148,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         shell: bash
         run: |
-          (cd dist && sha256sum -c SHA256SUMS && sha256sum *.tar.gz *.zip *.dmg > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
           flags=(--draft)
           case "$TAG" in
             *-alpha.*|*-beta.*|*-rc.*) flags+=(--prerelease) ;;
           esac
-          gh release create "$TAG" --verify-tag "${flags[@]}" --title "aether.ai $TAG" --notes-file release-notes.md dist/*
+          gh release create "$TAG" --verify-tag "${flags[@]}" --title "aether.ai $TAG" --notes-file release-notes.md dist/aether-arch-linux-x86_64.tar.gz dist/aether-source.tar.gz dist/SHA256SUMS
