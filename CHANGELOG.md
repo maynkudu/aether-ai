@@ -1,5 +1,12 @@
 # Changelog
 
+## UI v7 — Brand artwork and circular rings
+
+- Replaced provider-icon library lookup with an opt-in, documented first-party asset importer; Codex original app icons use a verified attributed mirror. No provider logo is borrowed from another brand. Missing artwork uses initials.
+- Added local dark/light brand asset index and custom-provider artwork support. Original artwork geometry and brand colours retained.
+- Replaced Canvas gauge with square, native QtQuick Shapes circular arcs, identical radii, rounded caps and constant top/bottom gaps. Preserved staggered reveal and Caelestia palette.
+- Rust backend unchanged. See shell/BRAND-ASSETS.md for provenance and limitations.
+
 ## UI v6 — Customisation
 
 - Added a persisted Grid / Rings layout selector, split session and weekly quota arcs, percentages and reset labels. Unknown quotas remain unknown.

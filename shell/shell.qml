@@ -3,6 +3,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Shapes
 import QtQuick.Controls.Basic
 import QtCore
 
@@ -10,7 +11,26 @@ ShellRoot {
     id: root
     property var accounts: []
     property string accountSnapshot: ""
-    Component.onCompleted: if (!reader.running) reader.running = true
+    property var brandIndex: ({})
+    property string brandDirectory: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/brand-icons"
+    Component.onCompleted: {
+        if (!reader.running) reader.running = true
+        if (!brandReader.running) brandReader.running = true
+    }
+    Process {
+        id: brandReader
+        command: ["cat", root.brandDirectory + "/index.json"]
+        stdout: StdioCollector { onStreamFinished: {
+            try { root.brandIndex = JSON.parse(text) } catch(e) { root.brandIndex = {} }
+        } }
+    }
+    function brandSource(name) {
+        let variant = root.lightTheme ? "light" : "dark"
+        let entry = root.brandIndex[name]
+        let filename = entry && entry[variant]
+        if (filename !== name + "-" + variant + ".png" || !/^[a-z0-9]{1,64}-(dark|light)\.png$/.test(filename)) return ""
+        return Qt.resolvedUrl("brand-icons/" + filename)
+    }
     property bool opened: false
     property bool pinned: false
     property double now: Date.now()
@@ -62,7 +82,19 @@ ShellRoot {
     property string schemePath: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/caelestia/scheme.json"
     Process { id: colors; command: ["cat", root.schemePath]; stdout: StdioCollector { onStreamFinished: root.loadPalette(text) } }
     Timer { interval: 2000; running: true; repeat: true; triggeredOnStart: true; onTriggered: if (!colors.running) colors.running = true }
-    function logo(provider) { let s = String(provider).toLowerCase(); return s.includes("codex") || s.includes("openai") ? "codex" : s.includes("claude") || s.includes("anthropic") ? "claude" : s.includes("grok") ? "grok" : s.includes("opencode") ? "opencode" : s === "pi" ? "pi" : "" }
+    function logo(provider) {
+        let s = String(provider || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+        if (s.includes("codex")) return "codex"
+        if (s.includes("claude") || s === "anthropic") return "claude"
+        if (s.includes("grok") || s === "xai") return "grok"
+        if (s.includes("opencode")) return "opencode"
+        if (s === "pi" || s === "piai") return "pi"
+        if (s.includes("openrouter")) return "openrouter"
+        if (s.includes("deepseek")) return "deepseek"
+        if (s.includes("agentrouter")) return "agentrouter"
+        if (s.includes("freegg")) return "freegg"
+        return /^[a-z0-9]{1,64}$/.test(s) ? s : ""
+    }
 
     function tone(key, fallback) { return (themeActive && palette[key]) || fallback }
     property color surface: tone("surface", "#000000")
@@ -74,15 +106,19 @@ ShellRoot {
     property color foreground: tone("onSurface", "#ffffff")
     property color muted: tone("onSurfaceVariant", lightTheme ? "#555555" : "#bdbdbd")
     property color iconColor: lightTheme ? "#000000" : "#ffffff"
-    component RuneIcon: Item {
+    component ProviderIcon: Item {
         id: glyph
         property string name: ""
         property string fallback: ""
-        // Pre-tinted transparent PNGs; never render a dark original on dark UI.
+        // First-party provider marks have their own namespace; never reuse legacy provider SVGs.
         Image {
             id: mono
             anchors.fill: parent
-            source: glyph.name ? Qt.resolvedUrl("icons/" + glyph.name + (root.lightTheme ? "-black.png" : "-white.png")) : ""
+            source: glyph.name === "settings" ? Qt.resolvedUrl("icons/settings" + (root.lightTheme ? "-black.png" : "-white.png")) : glyph.name ? root.brandSource(glyph.name) : ""
+            mipmap: true
+            smooth: true
+            sourceSize.width: 192
+            sourceSize.height: 192
             fillMode: Image.PreserveAspectFit
             visible: status === Image.Ready
         }
@@ -99,7 +135,7 @@ ShellRoot {
         color: pointer.containsMouse ? root.track : root.buttonColor
         Behavior on radius { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         Behavior on color { ColorAnimation { duration: 150 } }
-        RuneIcon { anchors.centerIn: parent; width: 20; height: 20; name: button.glyph; fallback: button.fallback }
+        ProviderIcon { anchors.centerIn: parent; width: 20; height: 20; name: button.glyph; fallback: button.fallback }
         MouseArea { id: pointer; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: button.clicked() }
     }
     component MSwitch: Switch {
@@ -267,7 +303,7 @@ ShellRoot {
                                     Rectangle {
                                         Layout.preferredWidth: 44; Layout.preferredHeight: 44
                                         radius: 16; color: root.buttonColor
-                                        RuneIcon { anchors.centerIn: parent; width: 24; height: 24; name: root.logo(accountCard.modelData.provider); fallback: String(accountCard.modelData.provider).slice(0, 1).toUpperCase() }
+                                        ProviderIcon { anchors.centerIn: parent; width: 24; height: 24; name: root.logo(accountCard.modelData.provider); fallback: String(accountCard.modelData.provider).slice(0, 1).toUpperCase() }
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
@@ -306,7 +342,7 @@ ShellRoot {
                     GridLayout {
                         visible: root.rings && root.accounts.length > 0
                         Layout.fillWidth: true
-                        columns: Math.max(1, Math.min(3, Math.floor((scroll.width + 12) / 144)))
+                        columns: Math.max(1, Math.min(3, Math.floor((scroll.width + 12) / 156)))
                         columnSpacing: 12; rowSpacing: 12
                         Repeater {
                             model: root.rings ? root.accounts : []
@@ -320,7 +356,7 @@ ShellRoot {
                                 property real weekLeft: root.remaining(week)
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 100
-                                Layout.preferredWidth: 132
+                                Layout.preferredWidth: 144
                                 implicitHeight: ringContent.implicitHeight + 24
                                 radius: 24; color: root.cardColor
                                 opacity: root.stagger(index + 2)
@@ -330,47 +366,79 @@ ShellRoot {
                                     anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
                                     anchors.margins: 12; spacing: 5
                                     Item {
+                                        id: ringFace
+                                        // Never let the layout independently stretch the two axes.
+                                        property real diameter: Math.max(1, Math.min(112, Math.floor(ringCard.width - 24)))
+                                        property real strokeSize: 5.5
+                                        property real ringRadius: Math.max(1, diameter / 2 - strokeSize / 2 - 2)
+                                        // A constant 3px clear gap after rounded caps, on both ends.
+                                        property real gapAngle: Math.asin(Math.min(0.95, (strokeSize + 3) / (2 * ringRadius))) * 180 / Math.PI
+                                        property real arcSpan: 180 - 2 * gapAngle
+                                        property real drawProgress: root.stagger(ringCard.index + 3)
+                                        implicitWidth: diameter
+                                        implicitHeight: diameter
                                         Layout.alignment: Qt.AlignHCenter
-                                        Layout.preferredWidth: Math.min(100, ringCard.width - 24)
-                                        Layout.preferredHeight: width
-                                        Canvas {
-                                            id: ringsCanvas
+                                        Layout.fillWidth: false
+                                        Layout.fillHeight: false
+                                        Layout.minimumWidth: diameter
+                                        Layout.preferredWidth: diameter
+                                        Layout.maximumWidth: diameter
+                                        Layout.minimumHeight: diameter
+                                        Layout.preferredHeight: diameter
+                                        Layout.maximumHeight: diameter
+                                        Shape {
                                             anchors.fill: parent
-                                            property real sessionValue: ringCard.sessionLeft
-                                            property real weeklyValue: ringCard.weekLeft
-                                            property color sessionTint: root.sessionColor
-                                            property color weeklyTint: root.weeklyColor
-                                            property color trackTint: root.track
-                                            property real progress: root.stagger(ringCard.index + 3)
-                                            onSessionValueChanged: requestPaint()
-                                            onWeeklyValueChanged: requestPaint()
-                                            onSessionTintChanged: requestPaint()
-                                            onWeeklyTintChanged: requestPaint()
-                                            onTrackTintChanged: requestPaint()
-                                            onProgressChanged: requestPaint()
-                                            onWidthChanged: requestPaint()
-                                            onHeightChanged: requestPaint()
-                                            onPaint: {
-                                                let ctx = getContext("2d")
-                                                ctx.reset()
-                                                let cx = width / 2, cy = height / 2
-                                                let r = Math.max(1, Math.min(width, height) / 2 - 6)
-                                                let gap = 0.13, span = Math.PI - 2 * gap
-                                                ctx.lineWidth = 5; ctx.lineCap = "round"
-                                                function arc(start, end, anticlockwise, colour) {
-                                                    ctx.beginPath(); ctx.strokeStyle = colour
-                                                    ctx.arc(cx, cy, r, start, end, anticlockwise); ctx.stroke()
+                                            preferredRendererType: Shape.CurveRenderer
+                                            ShapePath {
+                                                fillColor: "transparent"
+                                                strokeColor: root.track
+                                                strokeWidth: ringFace.strokeSize
+                                                capStyle: ShapePath.RoundCap
+                                                PathAngleArc {
+                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
+                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
+                                                    startAngle: 270 - ringFace.gapAngle; sweepAngle: -ringFace.arcSpan
                                                 }
-                                                let left = -Math.PI/2-gap, right = -Math.PI/2+gap
-                                                arc(left, left-span, true, trackTint)
-                                                arc(right, right+span, false, trackTint)
-                                                if (sessionValue > 0 && progress > 0) arc(left, left-span*sessionValue/100*progress, true, sessionTint)
-                                                if (weeklyValue > 0 && progress > 0) arc(right, right+span*weeklyValue/100*progress, false, weeklyTint)
+                                            }
+                                            ShapePath {
+                                                fillColor: "transparent"
+                                                strokeColor: root.track
+                                                strokeWidth: ringFace.strokeSize
+                                                capStyle: ShapePath.RoundCap
+                                                PathAngleArc {
+                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
+                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
+                                                    startAngle: 270 + ringFace.gapAngle; sweepAngle: ringFace.arcSpan
+                                                }
+                                            }
+                                            ShapePath {
+                                                fillColor: "transparent"
+                                                strokeColor: ringCard.sessionLeft > 0 && ringFace.drawProgress > 0 ? root.sessionColor : "transparent"
+                                                strokeWidth: ringFace.strokeSize
+                                                capStyle: ShapePath.RoundCap
+                                                PathAngleArc {
+                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
+                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
+                                                    startAngle: 270 - ringFace.gapAngle
+                                                    sweepAngle: -ringFace.arcSpan * Math.max(0, ringCard.sessionLeft) / 100 * ringFace.drawProgress
+                                                }
+                                            }
+                                            ShapePath {
+                                                fillColor: "transparent"
+                                                strokeColor: ringCard.weekLeft > 0 && ringFace.drawProgress > 0 ? root.weeklyColor : "transparent"
+                                                strokeWidth: ringFace.strokeSize
+                                                capStyle: ShapePath.RoundCap
+                                                PathAngleArc {
+                                                    centerX: ringFace.diameter / 2; centerY: ringFace.diameter / 2
+                                                    radiusX: ringFace.ringRadius; radiusY: ringFace.ringRadius
+                                                    startAngle: 270 + ringFace.gapAngle
+                                                    sweepAngle: ringFace.arcSpan * Math.max(0, ringCard.weekLeft) / 100 * ringFace.drawProgress
+                                                }
                                             }
                                         }
-                                        RuneIcon {
+                                        ProviderIcon {
                                             anchors.centerIn: parent
-                                            width: parent.width * 0.35; height: width
+                                            width: Math.round(ringFace.diameter * 0.43); height: width
                                             name: root.logo(ringCard.modelData.provider)
                                             fallback: String(ringCard.modelData.provider).slice(0,1).toUpperCase()
                                         }

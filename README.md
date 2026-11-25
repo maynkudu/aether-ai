@@ -6,17 +6,17 @@ A local-first AI quota monitor for Linux. Rust backend, independent Quickshell/Q
 
 ## Current state
 
-Experimental Rust backend v0.1.0 + UI v6. Codex is the only implemented quota provider; Claude, Grok, OpenCode and Pi are planned. The UI does not modify Caelestia or T3 Code. Native managed T3 authentication is not implemented. No license has been selected yet.
+Experimental Rust backend v0.1.0 + UI v7. Codex is the only implemented quota provider; Claude, Grok, OpenCode and Pi are planned. The UI does not modify Caelestia or T3 Code. Native managed T3 authentication is not implemented. No license has been selected yet.
 
 ## Install
 
-Requirements: Rust/Cargo, Codex CLI, Quickshell, systemd user services. Optional: ImageMagick and Git for Rune Icons, Inter and JetBrains Mono fonts.
+Requirements: Rust/Cargo, Codex CLI, Quickshell, systemd user services. Optional: Python 3 and ImageMagick for fetching/rendering provider artwork, Inter and JetBrains Mono fonts. Rings use QtQuick.Shapes (Qt 6.6+).
 
 ```sh
 bash install.sh --fetch-icons
 ```
 
-On Arch, optional dependencies: `sudo pacman -S --needed imagemagick inter-font ttf-jetbrains-mono`. Keep rustup if already installed. The icon fetch is opt-in and clones the upstream Rune Icons repository; review upstream assets and license before redistribution. Missing icons use text fallbacks.
+On Arch, optional dependencies: `sudo pacman -S --needed imagemagick inter-font ttf-jetbrains-mono`. Keep rustup if already installed. The opt-in icon fetch uses [documented provider artwork sources](shell/BRAND-ASSETS.md), not community icon libraries. Original brand artwork and theme variants are retained. Unknown/unavailable providers use initials.
 
 In Fish, ensure `fish_add_path ~/.local/bin` has been run.
 
@@ -30,7 +30,7 @@ qs -c aether
 
 Hover at the top-right (default) to open the drawer, or run `qs -c aether ipc call dashboard toggle` in a separate terminal. Settings: `qs -c aether ipc call dashboard settings`.
 
-In Settings, choose Grid (detailed quota cards) or Rings (left semicircle: 5-hour session; right semicircle: weekly). Ring colors use Caelestia primary/tertiary tones or two grayscale values in standalone mode. Missing windows show a dash. Choose any of the eight screen corners/edge centres, and enable or disable staggered motion. Settings persist locally. The overlay remains independent of Caelestia.
+In Settings, choose Grid (detailed quota cards) or Rings (left semicircle: 5-hour session; right semicircle: weekly). Rings use native circular vector paths, with a fixed square drawing area and evenly spaced rounded caps. Ring colors use Caelestia primary/tertiary tones or two grayscale values in standalone mode. Missing windows show a dash. Choose any of the eight screen corners/edge centres, and enable or disable staggered motion. Settings persist locally. The overlay remains independent of Caelestia.
 
 Optional personal Hyprland configuration:
 
@@ -49,7 +49,7 @@ qs kill -c aether
 qs -c aether
 ```
 
-For UI-only updates, use `bash install.sh --ui-only` and restart only aether's Quickshell instance. Existing installed Rune icons and preferences are retained. The UI installer backs up the existing shell.qml. Initial UI defaults: 440px width, 820ms opening, approximately 722ms closing.
+For UI-only updates, use `bash install.sh --ui-only` and restart only aether's Quickshell instance. Preferences and locally installed brand artwork are retained. After updating from v6 or older, run `bash install.sh --ui-only --fetch-icons` once to acquire the new provider artwork. The UI installer backs up the existing shell.qml. Initial UI defaults: 440px width, 820ms opening, approximately 722ms closing.
 
 ## Account discovery and safety
 
