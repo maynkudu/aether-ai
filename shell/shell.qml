@@ -11,6 +11,13 @@ ShellRoot {
     id: root
     property var allAccounts: []
     property var accounts: allAccounts.filter(a => !hiddenProviders.includes(logo(a.provider)) && !hiddenAccounts.includes(String(a.id)))
+    // Keep existing gauge delegates alive across cache refreshes.
+    property var ringAccountIds: []
+    function syncRingAccounts() {
+        let ids = accounts.map(a => String(a.id))
+        if (JSON.stringify(ids) !== JSON.stringify(ringAccountIds)) ringAccountIds = ids
+    }
+    onAccountsChanged: syncRingAccounts()
     property var hiddenProviders: parseList(prefs.hiddenProviders)
     property var hiddenAccounts: parseList(prefs.hiddenAccounts)
     function parseList(value) { try { let a = JSON.parse(value); return Array.isArray(a) ? a : [] } catch(e) { return [] } }
@@ -178,6 +185,12 @@ ShellRoot {
             if (prefs.motionMs === 820) prefs.motionMs = 1100
             prefs.motionRevision = 2
         }
+        // Adopt the calmer default once, without resetting any other preferences.
+        if (prefs.motionRevision < 3) {
+            if (prefs.motionMs < 1600) prefs.motionMs = 1800
+            prefs.motionRevision = 3
+        }
+        syncRingAccounts()
         if (!reader.running) reader.running = true
         if (!brandReader.running) brandReader.running = true
     }
@@ -241,62 +254,84 @@ ShellRoot {
     property string monoFont: installedFonts.indexOf("JetBrains Mono") >= 0 ? "JetBrains Mono" : sans
     property real animatedHeight: naturalHeight
     property real naturalHeight: Math.max(148, Math.min(drawer.height - 12, content.implicitHeight + 44))
-    Behavior on animatedHeight { NumberAnimation { duration: 360; easing.type: Easing.InOutCubic } }
-    // Native counterpart to Modulo's analytic, velocity-preserving spring.
-    // FrameAnimation stops at rest; no permanent animation polling.
-    component LiquidSpring: Item {
-        id: spring
+    Behavior on animatedHeight { NumberAnimation { duration: root.motionDuration(0.55); easing.type: Easing.InOutSine } }
+    // A single wall-clock timing scale for the entire interface. Qt's
+    // animation driver advances these values once per rendered frame. No
+    // spring thresholds, overshoot, or cascaded easing on quota sweeps.
+    function motionDuration(factor) {
+        if (prefs.motionStyle === "reduced") return 0
+        return Math.round(Math.max(1400, prefs.motionMs) * factor * (prefs.motionStyle === "smooth" ? 1.12 : 1))
+    }
+    component MotionValue: Item {
+        id: motion
         visible: false; width: 0; height: 0
         property real targetValue: 0
         property real value: 0
-        property real velocity: 0
-        property real frequency: 16
-        property real damping: prefs.motionStyle === "smooth" ? 0.995 : 0.96
-        property real tolerance: 0.001
+        property real factor: 1
+        property bool proportional: false
+        property int curve: Easing.InOutSine
         property bool instant: prefs.motionStyle === "reduced"
-        function jump(next) { value = next; velocity = 0 }
-        onTargetValueChanged: if (instant) jump(targetValue)
-        onInstantChanged: if (instant) jump(targetValue)
-        Component.onCompleted: jump(targetValue)
-        FrameAnimation {
-            running: !spring.instant && (Math.abs(spring.value - spring.targetValue) > spring.tolerance || Math.abs(spring.velocity) > spring.tolerance * 10)
-            onTriggered: {
-                let dt = Math.min(0.064, Math.max(0, frameTime))
-                let f = Math.max(0.1, Math.min(80, spring.frequency))
-                let z = Math.max(0.01, Math.min(0.9999, spring.damping))
-                let a = f * z, b = f * Math.sqrt(1 - z*z)
-                let x = spring.value - spring.targetValue, c = (spring.velocity + a*x) / b
-                let decay = Math.exp(-a*dt), co = Math.cos(b*dt), si = Math.sin(b*dt)
-                let next = spring.targetValue + decay*(x*co+c*si)
-                let speed = decay*((-a*x+b*c)*co+(-a*c-b*x)*si)
-                if (Math.abs(next-spring.targetValue) <= spring.tolerance && Math.abs(speed) <= spring.tolerance*10) spring.jump(spring.targetValue)
-                else { spring.velocity = speed; spring.value = next }
+        property bool ready: false
+        function retarget() {
+            if (!ready) return
+            tween.stop()
+            if (instant || Math.abs(targetValue-value) < 0.00001) {
+                value = targetValue
+                return
             }
+            // Reverse from the current position, rather than resetting it.
+            tween.from = value
+            tween.to = targetValue
+            tween.duration = Math.max(1, Math.round(root.motionDuration(factor) * (proportional ? Math.min(1, Math.abs(targetValue-value)) : 1)))
+            tween.start()
+        }
+        function jump(next) {
+            tween.stop()
+            value = instant ? targetValue : next
+            retarget()
+        }
+        onTargetValueChanged: retarget()
+        onInstantChanged: retarget()
+        Component.onCompleted: {
+            value = targetValue
+            ready = true
+        }
+        NumberAnimation {
+            id: tween
+            target: motion; property: "value"
+            easing.type: motion.curve
         }
     }
     function unit(v) { return Math.max(0, Math.min(1, v)) }
     function smooth(t) { t = unit(t); return t*t*(3-2*t) }
     function quintic(t) { t = unit(t); return t*t*t*(t*(t*6-15)+10) }
-    property real motionFrequency: (prefs.motionStyle === "smooth" ? 10.5 : 12) * 1100 / Math.max(300, prefs.motionMs)
-    LiquidSpring { id: drawerSpring; targetValue: root.opened ? 1 : 0; frequency: root.motionFrequency }
+    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true }
     property real reveal: unit(drawerSpring.value)
-    LiquidSpring { id: drawerContentSpring; targetValue: root.opened && root.reveal >= 0.43 ? 1 : 0; frequency: root.motionFrequency * (root.opened ? 1.25 : 1.65); damping: 0.985 }
-    LiquidSpring { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; frequency: root.motionFrequency * 1.10 }
+    MotionValue { id: drawerContentSpring; targetValue: root.opened ? 1 : 0; factor: 1.10; proportional: true; curve: Easing.Linear }
+    MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true }
     property real settingsReveal: unit(settingsSpring.value)
-    LiquidSpring { id: settingsContentSpring; targetValue: root.settingsOpen && root.settingsReveal >= 0.55 ? 1 : 0; frequency: root.motionFrequency * (root.settingsOpen ? 1.45 : 1.9); damping: 0.985 }
-    LiquidSpring { id: pageSpring; targetValue: root.settingsOpen && root.settingsReveal >= 0.60 ? 1 : 0; frequency: root.motionFrequency * 0.64; damping: 0.995 }
-    function heightProgress(p) { return prefs.motionStyle === "liquid" ? unit(p + 0.20*p*(1-p)) : p }
+    MotionValue { id: settingsContentSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
+    MotionValue { id: pageSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.15; proportional: true; curve: Easing.Linear }
+    // Ring fill has its own constant-rate clock, independent of the panel
+    // reveal and opacity. Both arcs start together and settle at their data.
+    MotionValue { id: ringClock; targetValue: root.opened && root.rings ? 1 : 0; factor: 1.40; proportional: true; curve: Easing.Linear }
+    function ringProgress(i) {
+        if (prefs.motionStyle === "reduced") return 1
+        let delay = 0.20 + (prefs.staggerEnabled ? Math.min(i,8)*0.015 : 0)
+        return unit((ringClock.value-delay)/0.68)
+    }
+    function heightProgress(p) { return p }
     function pageStage(i) {
         if (prefs.motionStyle === "reduced") return 1
-        let delay = prefs.staggerEnabled ? Math.min(i,12)*0.035 : 0
-        return quintic((unit(pageSpring.value)-0.16-delay)/(0.84-delay))
+        let delay = 0.18 + (prefs.staggerEnabled ? Math.min(i,12)*0.025 : 0)
+        return smooth((unit(pageSpring.value)-delay)/0.40)
     }
     property real finalPanelX: 6 + (drawer.width-12-panelWidth)*ax
     property real finalPanelY: 6 + (drawer.height-12-panelHeight)*ay
     function liquidRadius(w,h,p,finalRadius) {
         let capsule = Math.min(w,h)/2
         if (prefs.motionStyle !== "liquid") return Math.min(finalRadius,capsule)
-        let t = quintic((p-0.35)/0.65)
+        let t = smooth((p-0.20)/0.80)
         return Math.min(capsule,capsule*(1-t)+finalRadius*t)
     }
     // Anchor coordinates in the stable overlay: 0 = near edge, 0.5 = centre, 1 = far edge.
@@ -309,9 +344,8 @@ ShellRoot {
     property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
     function stagger(i) {
         if (prefs.motionStyle === "reduced") return reveal
-        let p = unit(drawerContentSpring.value)
-        let delay = prefs.staggerEnabled ? Math.min(i,10)*0.04 : 0
-        return quintic((p-delay)/(1-delay)) * smooth((reveal-0.35)/0.3)
+        let delay = 0.12 + (prefs.staggerEnabled ? Math.min(i,10)*0.025 : 0)
+        return smooth((unit(drawerContentSpring.value)-delay)/0.46)
     }
     function windowFor(account, minutes) {
         let windows = account.windows || []
@@ -321,7 +355,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1100; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1800; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -383,8 +417,8 @@ ShellRoot {
         implicitWidth: 44; implicitHeight: 44
         radius: pointer.pressed ? 14 : pointer.containsMouse ? 16 : 22
         color: pointer.containsMouse ? root.track : root.buttonColor
-        Behavior on radius { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-        Behavior on color { ColorAnimation { duration: 150 } }
+        Behavior on radius { NumberAnimation { duration: root.motionDuration(0.25); easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
         ProviderIcon { anchors.centerIn: parent; width: 20; height: 20; name: button.glyph; fallback: button.fallback }
         MouseArea { id: pointer; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: button.clicked() }
     }
@@ -398,14 +432,14 @@ ShellRoot {
             border.width: control.checked ? 0 : 1; border.color: root.outline
             Rectangle {
                 id: switchThumb
-                LiquidSpring { id: switchSpring; targetValue: control.checked ? 1 : 0; frequency: 20; damping: 0.95 }
+                MotionValue { id: switchSpring; targetValue: control.checked ? 1 : 0; factor: 0.30 }
                 property real slide: root.unit(switchSpring.value)
                 width: 16 + 4 * slide; height: width; radius: width / 2
                 anchors.verticalCenter: parent.verticalCenter
                 x: 6 + (parent.width - width - 10) * slide
                 color: control.checked ? root.onAccent : root.muted
             }
-            Behavior on color { ColorAnimation { duration: 150 } }
+            Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
         }
     }
     component MSlider: Slider {
@@ -420,7 +454,7 @@ ShellRoot {
             x: control.leftPadding + control.visualPosition * Math.max(0, control.availableWidth - width)
             y: (control.height - height) / 2
             implicitWidth: 16; implicitHeight: 24; radius: 8; color: root.primary
-            LiquidSpring { id: sliderSpring; targetValue: control.pressed ? 1.15 : 1; frequency: 22; damping: 0.94 }
+            MotionValue { id: sliderSpring; targetValue: control.pressed ? 1.075 : 1; factor: 0.25 }
             scale: prefs.motionStyle === "liquid" ? sliderSpring.value : 1
         }
     }
@@ -637,7 +671,7 @@ ShellRoot {
                 y: root.finalPanelY + 22 - body.y
                 width: Math.max(1, drawer.width - 56)
                 height: Math.max(1, root.panelHeight - 44)
-                enabled: root.opened && root.reveal > 0.92
+                enabled: root.opened && root.reveal > 0.75
                 interactive: enabled && contentHeight > height
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
@@ -719,7 +753,7 @@ ShellRoot {
                                         }
                                         Rectangle {
                                             Layout.fillWidth: true; implicitHeight: 8; radius: 4; color: root.track
-                                            Rectangle { width: parent.width * quota.remaining / 100; height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator; Behavior on width { NumberAnimation { duration: 500; easing.type: Easing.InOutCubic } } }
+                                            Rectangle { width: parent.width * quota.remaining / 100; height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator; Behavior on width { NumberAnimation { duration: root.motionDuration(0.90); easing.type: Easing.Linear } } }
                                         }
                                         MText { text: quota.known ? root.resetText(quota.modelData.reset) : "Quota unavailable"; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                                     }
@@ -733,15 +767,20 @@ ShellRoot {
                         columns: Math.max(1, Math.min(3, Math.floor((scroll.width + 12) / 156)))
                         columnSpacing: 12; rowSpacing: 12
                         Repeater {
-                            model: root.rings ? root.accounts : []
+                            model: root.rings ? root.ringAccountIds : []
                             delegate: Rectangle {
                                 id: ringCard
                                 required property var modelData
                                 required property int index
-                                property var session: root.windowFor(modelData, 300)
-                                property var week: root.windowFor(modelData, 10080)
+                                property var account: root.accounts.find(a => String(a.id) === String(modelData)) || ({name:"",provider:"",windows:[],status:"ok"})
+                                property var session: root.windowFor(account, 300)
+                                property var week: root.windowFor(account, 10080)
                                 property real sessionLeft: root.remaining(session)
                                 property real weekLeft: root.remaining(week)
+                                property real sessionSweep: Math.max(0, sessionLeft)
+                                property real weekSweep: Math.max(0, weekLeft)
+                                Behavior on sessionSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.motionDuration(0.90); easing.type: Easing.Linear } }
+                                Behavior on weekSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.motionDuration(0.90); easing.type: Easing.Linear } }
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 100
                                 Layout.preferredWidth: 144
@@ -755,11 +794,11 @@ ShellRoot {
                                     anchors.margins: 12; spacing: 5
                                     RowLayout {
                                         Layout.fillWidth: true; spacing: 6
-                                        ProviderIcon { Layout.preferredWidth: 23; Layout.preferredHeight: 23; name: root.logo(ringCard.modelData.provider); fallback: String(ringCard.modelData.provider).slice(0,1).toUpperCase() }
+                                        ProviderIcon { Layout.preferredWidth: 23; Layout.preferredHeight: 23; name: root.logo(ringCard.account.provider); fallback: String(ringCard.account.provider).slice(0,1).toUpperCase() }
                                         ColumnLayout {
                                             Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
-                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.modelData.name; font.weight: Font.DemiBold; font.pixelSize: 12 }
-                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.modelData.provider; color: root.muted; font.pixelSize: 10 }
+                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.account.name; font.weight: Font.DemiBold; font.pixelSize: 12 }
+                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.account.provider; color: root.muted; font.pixelSize: 10 }
                                         }
                                     }
                                     Item {
@@ -769,7 +808,7 @@ ShellRoot {
                                         property real strokeSize: diameter * 0.05
                                         property real outerRadius: diameter * 0.40
                                         property real innerRadius: diameter * (37 / 120)
-                                        property real drawProgress: root.stagger(ringCard.index + 3)
+                                        property real drawProgress: root.ringProgress(ringCard.index)
                                         implicitWidth: diameter
                                         implicitHeight: diameter
                                         Layout.alignment: Qt.AlignHCenter
@@ -795,14 +834,14 @@ ShellRoot {
                                                 PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 360 }
                                             }
                                             ShapePath {
-                                                fillColor: "transparent"; strokeColor: ringCard.sessionLeft > 0 && ringFace.drawProgress > 0 ? root.sessionColor : "transparent"
+                                                fillColor: "transparent"; strokeColor: ringCard.sessionSweep > 0 && ringFace.drawProgress > 0 ? root.sessionColor : "transparent"
                                                 strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
-                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 360 * Math.min(100, Math.max(0, ringCard.sessionLeft)) / 100 * ringFace.drawProgress }
+                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 3.6 * ringCard.sessionSweep * ringFace.drawProgress }
                                             }
                                             ShapePath {
-                                                fillColor: "transparent"; strokeColor: ringCard.weekLeft > 0 && ringFace.drawProgress > 0 ? root.weeklyColor : "transparent"
+                                                fillColor: "transparent"; strokeColor: ringCard.weekSweep > 0 && ringFace.drawProgress > 0 ? root.weeklyColor : "transparent"
                                                 strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
-                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 360 * Math.min(100, Math.max(0, ringCard.weekLeft)) / 100 * ringFace.drawProgress }
+                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 3.6 * ringCard.weekSweep * ringFace.drawProgress }
                                             }
                                         }
                                         // Fit both lines inside the inner circle, including 100%,
@@ -855,7 +894,7 @@ ShellRoot {
                                             }
                                         }
                                     }
-                                    MText { visible: ringCard.modelData.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; text: ringCard.modelData.status }
+                                    MText { visible: ringCard.account.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; text: ringCard.account.status }
                                 }
                             }
                         }
@@ -886,15 +925,15 @@ ShellRoot {
         implicitHeight: 36
         radius: 18
         color: "transparent"
-        LiquidSpring { id: buttonSpring; targetValue: choiceMouse.pressed ? 0.94 : choiceMouse.containsMouse && choice.enabled ? 1.035 : 1; frequency: 22; damping: 0.94 }
+        MotionValue { id: buttonSpring; targetValue: choiceMouse.pressed ? 0.98 : choiceMouse.containsMouse && choice.enabled ? 1.02 : 1; factor: 0.25 }
         Rectangle {
             anchors.fill: parent; radius: choice.radius
             scale: prefs.motionStyle === "liquid" ? buttonSpring.value : 1
             color: choice.selected ? root.primary : choiceMouse.pressed ? root.buttonColor : choiceMouse.containsMouse ? (choice.elevated ? root.buttonColor : root.track) : choice.elevated ? root.track : root.cardColor
             border.width: choice.elevated && !choice.selected ? 1 : 0
             border.color: choiceMouse.containsMouse ? root.primary : root.outline
-            Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 240 } }
-            Behavior on border.color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 240 } }
+            Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
+            Behavior on border.color { ColorAnimation { duration: root.motionDuration(0.25) } }
         }
         Row { anchors.centerIn: parent; spacing: 6
             GitHubMark { visible: choice.githubIcon; width: 17; height: 17; anchors.verticalCenter: parent.verticalCenter; ink: choice.selected ? root.onAccent : root.foreground }
@@ -983,8 +1022,8 @@ ShellRoot {
             color: liquidSelect.down ? root.buttonColor : liquidSelect.hovered ? (liquidSelect.prominent ? root.buttonColor : root.track) : liquidSelect.prominent ? root.track : root.cardColor
             border.width: 1
             border.color: liquidSelect.activeFocus || liquidSelect.popup.visible ? root.primary : root.outline
-            Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 220 } }
-            Behavior on border.color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 220 } }
+            Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
+            Behavior on border.color { ColorAnimation { duration: root.motionDuration(0.25) } }
         }
         indicator: ChevronDown {
             width: 19; height: 19
@@ -992,7 +1031,7 @@ ShellRoot {
             ink: liquidSelect.enabled ? root.foreground : root.muted
             rotation: liquidPopup.visible ? (liquidPopup.above ? 0 : 180) : (liquidSelect.prefersAbove ? 180 : 0)
             transformOrigin: Item.Center
-            Behavior on rotation { NumberAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 480; easing.type: Easing.InOutCubic } }
+            Behavior on rotation { NumberAnimation { duration: root.motionDuration(0.55); easing.type: Easing.InOutCubic } }
         }
         delegate: ItemDelegate {
             id: optionRow
@@ -1041,7 +1080,7 @@ ShellRoot {
                 color: optionRow.down ? root.buttonColor : optionRow.over ? root.track : optionRow.chosen ? root.buttonColor : liquidSelect.themeGrid ? root.surface : "transparent"
                 border.width: optionRow.chosen || optionRow.over ? 1 : 0
                 border.color: optionRow.chosen ? root.primary : root.outline
-                Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 180 } }
+                Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
             }
         }
         popup: Popup {
@@ -1053,7 +1092,7 @@ ShellRoot {
             property int columns: liquidSelect.themeGrid && width >= 340 ? 2 : 1
             property real cell: liquidSelect.themeGrid ? 72 : 44
             property real growth: 0
-            property real shownContent: root.quintic((growth-0.24)/0.76)
+            property real shownContent: root.smooth((growth-0.12)/0.72)
             property real fullHeight: Math.ceil(liquidSelect.count/columns)*cell+12
             width: liquidSelect.width
             height: Math.max(1,Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight,menuSpaceHeight))
@@ -1110,10 +1149,10 @@ ShellRoot {
                 }
             }
             enter: Transition {
-                NumberAnimation { target: liquidPopup; property: "growth"; to: 1; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*(prefs.motionStyle === "smooth" ? 0.88 : 0.78)); easing.type: Easing.InOutCubic }
+                NumberAnimation { target: liquidPopup; property: "growth"; to: 1; duration: root.motionDuration(0.85); easing.type: Easing.InOutSine }
             }
             exit: Transition {
-                NumberAnimation { target: liquidPopup; property: "growth"; to: 0; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*0.58); easing.type: Easing.InOutCubic }
+                NumberAnimation { target: liquidPopup; property: "growth"; to: 0; duration: root.motionDuration(0.85); easing.type: Easing.InOutSine }
             }
         }
     }
@@ -1141,7 +1180,7 @@ ShellRoot {
         Layout.fillWidth: true; implicitHeight: 48; radius: 14
         color: linkMouse.pressed ? root.buttonColor : linkMouse.containsMouse ? (link.githubIcon ? root.buttonColor : root.track) : link.githubIcon ? root.track : root.cardColor
         border.width: link.githubIcon ? 1 : 0; border.color: linkMouse.containsMouse ? root.primary : root.outline
-        Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 240 } }
+        Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
         RowLayout { anchors.fill: parent; anchors.margins: 14
             GitHubMark { visible: link.githubIcon; Layout.preferredWidth: 18; Layout.preferredHeight: 18; ink: root.foreground }
             MText { text: link.label; Layout.fillWidth: true; font.weight: Font.Medium }
@@ -1184,8 +1223,8 @@ ShellRoot {
             RowLayout {
                 anchors.centerIn: parent
                 width: Math.max(1,settingsPanel.width-24); height: Math.max(1,settingsPanel.height-24)
-                opacity: root.quintic(settingsContentSpring.value)
-                enabled: root.settingsOpen && opacity > 0.85
+                opacity: root.smooth((settingsContentSpring.value-0.12)/0.68)
+                enabled: root.settingsOpen && opacity > 0.65
                 spacing: 0
                 Rectangle {
                     Layout.preferredWidth: settingsPanel.width < 680 ? 126 : 216
@@ -1205,7 +1244,7 @@ ShellRoot {
                             property real rowHeight: Math.max(28, Math.min(44, (settingsPanel.height-190)/root.settingsPages.length-8))
                             Layout.fillWidth: true
                             Layout.preferredHeight: root.settingsPages.length * (rowHeight+8)-8
-                            LiquidSpring { id: navSpring; targetValue: Math.max(0,root.settingsPages.indexOf(root.settingsTab))*(navigationTrack.rowHeight+8); frequency: 18; damping: 0.9; tolerance: 0.05 }
+                            MotionValue { id: navSpring; targetValue: Math.max(0,root.settingsPages.indexOf(root.settingsTab))*(navigationTrack.rowHeight+8); factor: 0.55 }
                             Rectangle {
                                 width: parent.width; height: navigationTrack.rowHeight; radius: height/2
                                 y: Math.max(0,Math.min(parent.height-height,navSpring.value))
@@ -1403,7 +1442,7 @@ ShellRoot {
                                 SectionTitle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     text: "Motion" }
                                 Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
-                                    text: "Liquid uses Modulo-inspired interruptible springs and capsule-shaped surfaces. Smooth is more restrained. Reduced disables these transitions." }
+                                    text: "Liquid uses slow, interruptible transitions and capsule-shaped surfaces. Smooth is slightly slower. Ring sweeps run at a constant rate. Reduced disables interface motion." }
                                 RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     
                                     Layout.fillWidth: true
@@ -1415,7 +1454,7 @@ ShellRoot {
                                 RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                                 RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
-                                    MText { text: "Animation · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 300; to: 1800; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
+                                    MText { text: "Animation · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 1400; to: 2800; stepSize: 100; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Providers"; Layout.fillWidth: true; spacing: 12
@@ -1631,7 +1670,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1100; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1800; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14

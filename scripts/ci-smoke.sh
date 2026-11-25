@@ -11,7 +11,10 @@ cp "$root/shell/shell.qml" "$XDG_CONFIG_HOME/quickshell/aether/"
 cp "$root/target/release/aether" "$HOME/.local/bin/aether"
 cp "$root/scripts/update.py" "$HOME/.local/bin/aether-update"
 chmod +x "$HOME/.local/bin/aether-update"
-printf '{"accounts":[],"updated":null}\n' > "$XDG_CACHE_HOME/aether/usage.json"
+printf '[AetherUI]\nviewMode=rings\n' > "$XDG_CONFIG_HOME/quickshell/aether/preferences.ini"
+cat > "$XDG_CACHE_HOME/aether/usage.json" <<'JSON'
+{"accounts":[{"id":"smoke-one","name":"Smoke 100","provider":"Codex","status":"ok","windows":[{"minutes":300,"remaining":100},{"minutes":10080,"remaining":64}]},{"id":"smoke-two","name":"Smoke zero","provider":"Codex","status":"ok","windows":[{"minutes":300,"remaining":0}]}],"updated":null}
+JSON
 export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1
 export WLR_RENDERER_ALLOW_SOFTWARE=1
 export LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=wayland
@@ -48,7 +51,7 @@ done
 grep -q 'Configuration Loaded' "$work/qs.log"
 for action in toggle settings analytics shortcuts dismiss; do
   timeout 15 qs -c aether ipc call dashboard "$action"
-  sleep 2
+  sleep 3
   kill -0 "$shellpid"
 done
 if grep -Ei 'failed to load configuration|TypeError:|ReferenceError:|Cannot assign to non-existent property|ERROR:' "$work/qs.log"; then exit 1; fi

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Calmer native motion
+
+- Use one shared duration scale, default 1800 ms, for Linux drawer, settings, navigation, menus and control transitions. Reverse from the current position without overshoot; keep scrolling and input independent.
+- Draw concentric quota rings with a dedicated linear clock and preserve ring delegates across unchanged account identities. Animate changed quota values independently.
+- Extend headless smoke coverage to render real-shaped sample ring cards, including 100%, zero and unknown quota states.
+
 ### Concentric rings and web refinements
 
 - Adopt full concentric session and weekly quota gauges on Linux, preserving real quota values, resets and provider identity.
