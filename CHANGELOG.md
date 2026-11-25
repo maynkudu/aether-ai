@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Add experimental opt-in macOS release updater with stable/preview channels, official architecture-specific assets, SHA256 and bundle checks, staging and installation on Quit.
+- Validate release tags and lockfile before expensive matrix builds; embed release identity in native binaries.
+
 - Add experimental macOS menu bar controls, opt-in registered shortcuts and selectable primary-display corner dwell reveal; close minimizes when native controls initialize successfully.
 - Move native quota refreshes into a single independent polling worker, preventing concurrent refreshes and keeping macOS polling with the window minimized.
 

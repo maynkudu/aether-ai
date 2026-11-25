@@ -57,7 +57,7 @@ Linux supports Liquid, Smooth and Reduced motion, with opaque theme-aware surfac
 | Codex & history | Implemented | Implemented; testing pending | Implemented; testing pending |
 | Hover drawer, global hotkeys | Implemented | Planned | Experimental corner reveal and global shortcuts |
 | Theme support | Eight schemes | Seven built-in schemes | Seven built-in schemes |
-| Application updates | Opt-in updater | Planned | Planned |
+| Application updates | Opt-in updater | Planned | Experimental opt-in release updater |
 
 Native previews use an independent polling worker; the macOS menu-bar preview can continue polling with the window minimized. Quit stops the process. The Linux daemon runs independently. No Electron or hosted service required.
 
