@@ -174,6 +174,9 @@ ShellRoot {
     property var brandIndex: ({})
     property string brandDirectory: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/brand-icons"
     Component.onCompleted: {
+        // Freeze the layer namespace for this instance; changing it live is
+        // unsupported by the Wayland layer-shell protocol.
+        startupMaterial = requestedMaterial
         if (prefs.motionRevision < 2) {
             if (prefs.motionMs === 820) prefs.motionMs = 1100
             prefs.motionRevision = 2
@@ -267,16 +270,68 @@ ShellRoot {
     LiquidSpring { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; frequency: root.motionFrequency * 1.10 }
     property real settingsReveal: unit(settingsSpring.value)
     LiquidSpring { id: settingsContentSpring; targetValue: root.settingsOpen && root.settingsReveal >= 0.55 ? 1 : 0; frequency: root.motionFrequency * (root.settingsOpen ? 1.45 : 1.9); damping: 0.985 }
-    LiquidSpring { id: pageSpring; targetValue: root.settingsOpen && root.settingsReveal >= 0.68 ? 1 : 0; frequency: root.motionFrequency * 0.95; damping: 0.985 }
+    LiquidSpring { id: pageSpring; targetValue: root.settingsOpen && root.settingsReveal >= 0.60 ? 1 : 0; frequency: root.motionFrequency * 0.64; damping: 0.995 }
     function heightProgress(p) { return prefs.motionStyle === "liquid" ? unit(p + 0.20*p*(1-p)) : p }
     function pageStage(i) {
         if (prefs.motionStyle === "reduced") return 1
-        let delay = prefs.staggerEnabled ? Math.min(i,12)*0.032 : 0
-        return quintic((unit(pageSpring.value)-0.10-delay)/(0.78-delay))
+        let delay = prefs.staggerEnabled ? Math.min(i,12)*0.035 : 0
+        return quintic((unit(pageSpring.value)-0.16-delay)/(0.84-delay))
     }
     property real finalPanelX: 6 + (drawer.width-12-panelWidth)*ax
     property real finalPanelY: 6 + (drawer.height-12-panelHeight)*ay
-    property color panelColor: prefs.glassEnabled ? Qt.rgba(surface.r,surface.g,surface.b,prefs.glassOpacity/100) : surface
+    property string requestedMaterial: prefs.materialMode === "legacy" ? (prefs.glassEnabled ? "frosted" : "solid") : prefs.materialMode
+    property string startupMaterial: requestedMaterial
+    property bool restartForMaterial: (startupMaterial === "liquid") !== (requestedMaterial === "liquid")
+    property string effectiveMaterial: restartForMaterial ? startupMaterial : requestedMaterial
+    property bool refractionReady: false
+    property string refractionStatus: "HyprGlass status not checked"
+    property bool glassActive: effectiveMaterial === "frosted" || (effectiveMaterial === "liquid" && refractionReady)
+    property bool liquidActive: effectiveMaterial === "liquid" && refractionReady
+    property color panelColor: glassActive ? Qt.rgba(surface.r,surface.g,surface.b,(liquidActive ? prefs.liquidTint : prefs.glassOpacity)/100) : surface
+    property color materialCard: liquidActive ? Qt.rgba(cardColor.r,cardColor.g,cardColor.b,0.68) : cardColor
+    property string liquidConfig: [
+        "-- Requires compatible HyprGlass with contour support.",
+        "-- Merge into your existing HyprGlass config; do not overwrite it.",
+        "if hl.plugin.hyprglass then",
+        "    local hg = hl.plugin.hyprglass",
+        "    hg.config({ layers = { enabled = true } })",
+        "    hg.preset(\"aether-liquid\", {",
+        "        blur_strength = 0.65,",
+        "        refraction_strength = " + prefs.refractionStrength.toFixed(2) + ",",
+        "        chromatic_aberration = " + prefs.glassDispersion.toFixed(2) + ",",
+        "        fresnel_strength = 0.65,",
+        "        specular_strength = 0.8,",
+        "        edge_thickness_px = 20,",
+        "        edge_height = " + prefs.glassEdgeHeight + ",",
+        "        glass_opacity = 1.0",
+        "    })",
+        "    hg.layer(\"aether-liquid-drawer\", { preset = \"aether-liquid\", mask_mode = \"contour\", mask_threshold = 0.08, mask_feather = 0.12, live_resample = true })",
+        "    hg.layer(\"aether-liquid-settings\", { preset = \"aether-liquid\", mask_mode = \"contour\", mask_threshold = 0.08, mask_feather = 0.12, live_resample = true })",
+        "end"
+    ].join("\n")
+    function checkRefraction() { if (!glassProbe.running) glassProbe.running = true }
+    Process {
+        id: glassProbe
+        command: ["hyprctl", "-j", "hyprglass", "status"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    let v = JSON.parse(text)
+                    let layer = v.features && v.features.layers
+                    root.refractionReady = !!(v.active && layer && layer.active && v.shaders !== "failed")
+                    root.refractionStatus = root.refractionReady ? "HyprGlass " + v.version + " · layer renderer active" : "HyprGlass not rendering layers" + (layer && layer.reason ? " · "+layer.reason : "")
+                } catch(e) {
+                    root.refractionReady = false
+                    root.refractionStatus = "Compatible HyprGlass renderer unavailable"
+                }
+            }
+        }
+    }
+    Timer {
+        interval: 12000; repeat: true; triggeredOnStart: true
+        running: root.requestedMaterial === "liquid" || root.effectiveMaterial === "liquid"
+        onTriggered: root.checkRefraction()
+    }
     property color glassEdge: Qt.rgba(foreground.r,foreground.g,foreground.b,lightTheme ? 0.16 : 0.23)
     function liquidRadius(w,h,p,finalRadius) {
         let capsule = Math.min(w,h)/2
@@ -306,7 +361,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1100; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property bool glassEnabled: false; property int glassOpacity: 88 }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1100; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property bool glassEnabled: false; property int glassOpacity: 88; property string materialMode: "legacy"; property int liquidTint: 38; property real refractionStrength: 0.8; property real glassDispersion: 0.35; property int glassEdgeHeight: 28 }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -488,7 +543,7 @@ ShellRoot {
         implicitHeight: Math.min(780, screen ? screen.height : 780)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "aether-drawer"
+        WlrLayershell.namespace: root.startupMaterial === "liquid" ? "aether-liquid-drawer" : "aether-drawer"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
         mask: Region { item: corner; Region { item: hitbox } }
@@ -526,7 +581,7 @@ ShellRoot {
             visible: root.reveal > 0.0001
             radius: root.liquidRadius(width, height, root.reveal, 30)
             color: root.panelColor
-            border.width: prefs.glassEnabled ? 1 : 0
+            border.width: root.glassActive ? 1 : 0
             border.color: root.glassEdge
             clip: true
             opacity: root.smooth(root.reveal / 0.12)
@@ -577,7 +632,7 @@ ShellRoot {
                             transform: Translate { y: (1 - accountCard.opacity) * 16 }
                             Layout.fillWidth: true
                             implicitHeight: card.implicitHeight + 36
-                            radius: prefs.cardRadius; color: root.cardColor
+                            radius: prefs.cardRadius; color: root.materialCard
                             ColumnLayout {
                                 id: card
                                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 18
@@ -642,7 +697,7 @@ ShellRoot {
                                 Layout.minimumWidth: 100
                                 Layout.preferredWidth: 144
                                 implicitHeight: ringContent.implicitHeight + 24
-                                radius: prefs.cardRadius; color: root.cardColor
+                                radius: prefs.cardRadius; color: root.materialCard
                                 opacity: root.stagger(index + 2)
                                 transform: Translate { y: (1 - ringCard.opacity) * 16 }
                                 ColumnLayout {
@@ -766,6 +821,7 @@ ShellRoot {
         property string label: ""
         property bool githubIcon: false
         property bool selected: false
+        property bool elevated: githubIcon
         signal chosen()
         implicitWidth: Math.max(64, choiceText.implicitWidth + 28 + (githubIcon ? 24 : 0))
         implicitHeight: 36
@@ -775,8 +831,11 @@ ShellRoot {
         Rectangle {
             anchors.fill: parent; radius: choice.radius
             scale: prefs.motionStyle === "liquid" ? buttonSpring.value : 1
-            color: choice.selected ? root.primary : choiceMouse.containsMouse ? root.track : root.cardColor
-            Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 160 } }
+            color: choice.selected ? root.primary : choiceMouse.pressed ? root.buttonColor : choiceMouse.containsMouse ? (choice.elevated ? root.buttonColor : root.track) : choice.elevated ? root.track : root.cardColor
+            border.width: choice.elevated && !choice.selected ? 1 : 0
+            border.color: choiceMouse.containsMouse ? root.primary : root.outline
+            Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 240 } }
+            Behavior on border.color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 240 } }
         }
         Row { anchors.centerIn: parent; spacing: 6
             GitHubMark { visible: choice.githubIcon; width: 17; height: 17; anchors.verticalCenter: parent.verticalCenter; ink: choice.selected ? root.onAccent : root.foreground }
@@ -797,14 +856,48 @@ ShellRoot {
             }
         }
     }
+    // Feather FiChevronDown: original 24x24 stroke geometry (MIT).
+    component ChevronDown: Item {
+        id: chevron
+        property color ink: root.foreground
+        implicitWidth: 18; implicitHeight: 18
+        Shape {
+            anchors.centerIn: parent
+            width: 24; height: 24
+            scale: Math.min(chevron.width,chevron.height)/24
+            preferredRendererType: Shape.CurveRenderer
+            ShapePath {
+                strokeWidth: 2; strokeColor: chevron.ink
+                fillColor: "transparent"; capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
+                PathSvg { path: "M6 9 L12 15 L18 9" }
+            }
+        }
+    }
+    component ThemeSwatch: Rectangle {
+        id: swatch
+        property var colors: ["#000000","#ffffff","#999999"]
+        implicitWidth: 42; implicitHeight: 38
+        radius: 10; color: colors[0]
+        border.width: 1; border.color: Qt.rgba(0.5,0.5,0.5,0.6)
+        Row {
+            anchors.centerIn: parent; spacing: 3
+            Repeater {
+                model: swatch.colors.slice(1)
+                delegate: Rectangle { required property string modelData; width: 11; height: 23; radius: 5.5; color: modelData }
+            }
+        }
+    }
     component LiquidSelect: ComboBox {
         id: liquidSelect
         property var labelFor: function(value) { return String(value) }
         property bool fontPreview: false
-        implicitHeight: 42
+        property bool themeGrid: false
+        property bool prominent: false
+        implicitHeight: 44
         font.family: root.sans
         font.pixelSize: 13
-        leftPadding: 14; rightPadding: 36
+        leftPadding: 14; rightPadding: 40
+        hoverEnabled: true
         displayText: currentIndex < 0 ? "Select…" : labelFor(currentText)
         contentItem: MText {
             text: liquidSelect.displayText
@@ -813,34 +906,73 @@ ShellRoot {
             color: liquidSelect.enabled ? root.foreground : root.muted
         }
         background: Rectangle {
-            radius: height/2; color: liquidSelect.down ? root.track : liquidSelect.hovered ? root.buttonColor : root.cardColor
-            border.width: liquidSelect.activeFocus ? 1 : 0; border.color: root.primary
-            Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 180 } }
+            radius: 16
+            color: liquidSelect.down ? root.buttonColor : liquidSelect.hovered ? (liquidSelect.prominent ? root.buttonColor : root.track) : liquidSelect.prominent ? root.track : root.cardColor
+            border.width: 1
+            border.color: liquidSelect.activeFocus || liquidSelect.popup.visible ? root.primary : root.outline
+            Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 220 } }
+            Behavior on border.color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 220 } }
         }
-        indicator: MText {
+        indicator: ChevronDown {
+            width: 19; height: 19
             x: liquidSelect.width-width-14; y: (liquidSelect.height-height)/2
-            text: "⌄"; color: root.muted; font.pixelSize: 18
+            ink: liquidSelect.enabled ? root.foreground : root.muted
             rotation: liquidSelect.popup.visible ? 180 : 0
-            Behavior on rotation { NumberAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 360; easing.type: Easing.InOutCubic } }
+            transformOrigin: Item.Center
+            Behavior on rotation { NumberAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 480; easing.type: Easing.InOutCubic } }
         }
         delegate: ItemDelegate {
+            id: optionRow
             required property int index
             required property string modelData
-            width: liquidList.width; height: 38
+            property bool chosen: liquidSelect.currentIndex === index
+            property bool over: hovered || liquidSelect.highlightedIndex === index
+            property var scheme: liquidSelect.themeGrid ? root.schemeChoices[index] : null
+            hoverEnabled: true
+            width: Math.max(1,liquidGrid.cellWidth-6)
+            height: liquidGrid.cellHeight-6
+            padding: 10
             highlighted: liquidSelect.highlightedIndex === index
-            contentItem: MText {
-                text: liquidSelect.labelFor(modelData) + (liquidSelect.currentIndex === index ? "  ✓" : "")
-                font.family: liquidSelect.fontPreview && root.installedFonts.includes(modelData) ? modelData : root.sans
-                color: root.foreground; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+            contentItem: RowLayout {
+                spacing: 10
+                ThemeSwatch { visible: !!optionRow.scheme; colors: optionRow.scheme ? optionRow.scheme.swatch : ["#000000","#ffffff","#999999"] }
+                ColumnLayout {
+                    Layout.fillWidth: true; spacing: 3
+                    MText {
+                        Layout.fillWidth: true
+                        text: liquidSelect.labelFor(optionRow.modelData)
+                        font.family: liquidSelect.fontPreview && root.installedFonts.includes(optionRow.modelData) ? optionRow.modelData : root.sans
+                        font.weight: optionRow.chosen ? Font.DemiBold : Font.Normal
+                        color: root.foreground; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+                    }
+                    MText {
+                        visible: !!optionRow.scheme; Layout.fillWidth: true
+                        text: optionRow.scheme ? optionRow.scheme.note : ""
+                        font.pixelSize: 10; color: root.muted; elide: Text.ElideRight
+                    }
+                }
+                MText { visible: optionRow.chosen; text: "✓"; font.pixelSize: 14; color: root.primary }
             }
-            background: Rectangle { radius: 14; color: highlighted ? root.track : "transparent" }
+            background: Rectangle {
+                radius: 14
+                color: optionRow.down ? root.buttonColor : optionRow.over ? root.track : optionRow.chosen ? root.buttonColor : liquidSelect.themeGrid ? root.surface : "transparent"
+                border.width: optionRow.chosen || optionRow.over ? 1 : 0
+                border.color: optionRow.chosen ? root.primary : root.outline
+                Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 180 } }
+            }
         }
         popup: Popup {
             id: liquidPopup
             property bool above: false
-            y: above ? -height-6 : liquidSelect.height+6
+            property int columns: liquidSelect.themeGrid && width >= 340 ? 2 : 1
+            property real cell: liquidSelect.themeGrid ? 72 : 44
+            property real growth: 0
+            property real shownContent: root.quintic((growth-0.24)/0.76)
+            property real fullHeight: Math.ceil(liquidSelect.count/columns)*cell+12
             width: liquidSelect.width
-            height: Math.min(290,liquidSelect.count*38+12,Math.max(100,settingsPanel.height-36))
+            height: Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight,Math.max(100,settingsPanel.height-32))
+            y: above ? -height-6 : liquidSelect.height+6
+            margins: 8
             padding: 6
             focus: true
             onAboutToShow: {
@@ -852,39 +984,42 @@ ShellRoot {
             onClosed: if (root.activeDropdown === liquidPopup) root.activeDropdown = null
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
             background: Item {
-                id: liquidBackground
-                property real growth: 0.15
                 Rectangle {
-                    anchors.top: liquidPopup.above ? undefined : parent.top
-                    anchors.bottom: liquidPopup.above ? parent.bottom : undefined
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    width: parent.width*(0.88+0.12*liquidBackground.growth)
-                    height: Math.max(1,parent.height*liquidBackground.growth)
-                    radius: root.liquidRadius(width,height,liquidBackground.growth,20)
+                    anchors.top: parent.top; anchors.left: parent.left
+                    width: Math.max(1,parent.width*liquidPopup.growth)
+                    height: Math.max(1,parent.height*root.heightProgress(liquidPopup.growth))
+                    radius: root.liquidRadius(width,height,liquidPopup.growth,20)
+                    opacity: root.smooth(liquidPopup.growth/0.14)
                     color: root.cardColor; border.width: 1; border.color: root.outline
                 }
             }
-            contentItem: ListView {
-                id: liquidList
-                clip: true; opacity: 0; model: liquidPopup.visible ? liquidSelect.delegateModel : null
-                currentIndex: liquidSelect.highlightedIndex
-                boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-            }
-            enter: Transition {
-                ParallelAnimation {
-                    NumberAnimation { target: liquidBackground; property: "growth"; to: 1; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*0.44); easing.type: Easing.OutQuint }
-                    SequentialAnimation {
-                        PauseAnimation { duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*0.11) }
-                        NumberAnimation { target: liquidList; property: "opacity"; to: 1; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*0.31); easing.type: Easing.OutCubic }
+            contentItem: Item {
+                id: dropdownContent
+                Item {
+                    anchors.left: parent.left; anchors.top: parent.top
+                    width: parent.width*liquidPopup.growth
+                    height: parent.height*root.heightProgress(liquidPopup.growth)
+                    clip: true
+                    GridView {
+                        id: liquidGrid
+                        width: dropdownContent.width; height: dropdownContent.height
+                        clip: true
+                        opacity: liquidPopup.shownContent
+                        enabled: liquidPopup.shownContent > 0.7
+                        model: liquidPopup.visible ? liquidSelect.delegateModel : null
+                        currentIndex: liquidSelect.highlightedIndex
+                        cellWidth: width/liquidPopup.columns
+                        cellHeight: liquidPopup.cell
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     }
                 }
             }
+            enter: Transition {
+                NumberAnimation { target: liquidPopup; property: "growth"; to: 1; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*(prefs.motionStyle === "smooth" ? 0.88 : 0.78)); easing.type: Easing.InOutCubic }
+            }
             exit: Transition {
-                ParallelAnimation {
-                    NumberAnimation { target: liquidBackground; property: "growth"; to: 0.15; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*0.30); easing.type: Easing.InOutCubic }
-                    NumberAnimation { target: liquidList; property: "opacity"; to: 0; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*0.14); easing.type: Easing.OutCubic }
-                }
+                NumberAnimation { target: liquidPopup; property: "growth"; to: 0; duration: prefs.motionStyle === "reduced" ? 0 : Math.round(prefs.motionMs*0.58); easing.type: Easing.InOutCubic }
             }
         }
     }
@@ -896,7 +1031,7 @@ ShellRoot {
         property string value: ""
         Layout.fillWidth: true
         implicitHeight: 100
-        radius: 20; color: root.cardColor
+        radius: 20; color: root.materialCard
         ColumnLayout {
             anchors.fill: parent; anchors.margins: 16; spacing: 6
             Description { text: stat.label }
@@ -910,7 +1045,9 @@ ShellRoot {
         property string url: ""
         property bool githubIcon: false
         Layout.fillWidth: true; implicitHeight: 48; radius: 14
-        color: linkMouse.containsMouse ? root.track : root.cardColor
+        color: linkMouse.pressed ? root.buttonColor : linkMouse.containsMouse ? (link.githubIcon ? root.buttonColor : root.track) : link.githubIcon ? root.track : root.cardColor
+        border.width: link.githubIcon ? 1 : 0; border.color: linkMouse.containsMouse ? root.primary : root.outline
+        Behavior on color { ColorAnimation { duration: prefs.motionStyle === "reduced" ? 0 : 240 } }
         RowLayout { anchors.fill: parent; anchors.margins: 14
             GitHubMark { visible: link.githubIcon; Layout.preferredWidth: 18; Layout.preferredHeight: 18; ink: root.foreground }
             MText { text: link.label; Layout.fillWidth: true; font.weight: Font.Medium }
@@ -927,7 +1064,7 @@ ShellRoot {
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "aether-settings"
+        WlrLayershell.namespace: root.startupMaterial === "liquid" ? "aether-liquid-settings" : "aether-settings"
         WlrLayershell.keyboardFocus: root.settingsOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
         Rectangle {
             id: settingsBody
@@ -935,7 +1072,7 @@ ShellRoot {
             width: settingsPanel.width * root.settingsReveal
             height: settingsPanel.height * root.heightProgress(root.settingsReveal)
             radius: root.liquidRadius(width, height, root.settingsReveal, 30); color: root.panelColor
-            border.width: prefs.glassEnabled ? 1 : 0; border.color: root.glassEdge
+            border.width: root.glassActive ? 1 : 0; border.color: root.glassEdge
             clip: true
             opacity: root.smooth(root.settingsReveal/0.1)
             visible: root.settingsReveal > 0.0001
@@ -959,7 +1096,7 @@ ShellRoot {
                 Rectangle {
                     Layout.preferredWidth: settingsPanel.width < 680 ? 126 : 216
                     Layout.fillHeight: true
-                    color: root.cardColor; radius: 24
+                    color: root.materialCard; radius: 24
                     ColumnLayout {
                         anchors.fill: parent; anchors.margins: 14; spacing: 8
                         MText { text: "aether.ai"; font.pixelSize: settingsPanel.width < 680 ? 20 : 26; font.weight: Font.DemiBold; font.letterSpacing: -0.9; Layout.fillWidth: true }
@@ -1004,7 +1141,7 @@ ShellRoot {
                             Layout.fillWidth: true; implicitHeight: headingLabel.implicitHeight
                             Item {
                                 anchors.left: parent.left; anchors.top: parent.top
-                                height: parent.height; width: parent.width*root.quintic(root.unit(pageSpring.value)/0.40)
+                                height: parent.height; width: parent.width*root.quintic(root.unit(pageSpring.value)/0.55)
                                 clip: true
                                 MText { id: headingLabel; text: root.settingsTab; width: pageHeading.width; font.pixelSize: 31; font.weight: Font.DemiBold; font.letterSpacing: -1; elide: Text.ElideRight }
                             }
@@ -1017,7 +1154,7 @@ ShellRoot {
                         Item {
                             id: pageRevealClip
                             anchors.left: parent.left; anchors.top: parent.top
-                            width: parent.width*root.quintic((root.unit(pageSpring.value)-0.10)/0.68)
+                            width: parent.width*root.quintic((root.unit(pageSpring.value)-0.15)/0.85)
                             height: parent.height; clip: true
                         Flickable {
                         id: pageScroll
@@ -1052,7 +1189,7 @@ ShellRoot {
                                         opacity: root.pageStage(index+5)
                                         transform: Translate { x: -18*(1-root.pageStage(index+5)); y: -5*(1-root.pageStage(index+5)) }
                                         id: overviewAccount
-                                        Layout.fillWidth: true; implicitHeight: overviewDetails.implicitHeight+28; radius: 18; color: root.cardColor
+                                        Layout.fillWidth: true; implicitHeight: overviewDetails.implicitHeight+28; radius: 18; color: root.materialCard
                                         ColumnLayout {
                                             id: overviewDetails
                                             anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 14; spacing: 12
@@ -1117,6 +1254,7 @@ ShellRoot {
                                     }
                                     LiquidSelect {
                                         Layout.fillWidth: true
+                                        themeGrid: true
                                         model: root.schemeChoices.map(x => x.name)
                                         currentIndex: Math.max(0,root.schemeChoices.findIndex(x => x.id === prefs.colorScheme))
                                         onActivated: prefs.colorScheme = root.schemeChoices[index].id
@@ -1128,21 +1266,78 @@ ShellRoot {
                                     MText { text: "Drawer width · " + prefs.layoutWidth + " px"; Layout.fillWidth: true } MSlider { from: 360; to: 560; stepSize: 10; value: prefs.layoutWidth; onMoved: prefs.layoutWidth = Math.round(value) } }
                                 RowLayout { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
                                     MText { text: "Card rounding · " + prefs.cardRadius + " px"; Layout.fillWidth: true } MSlider { from: 8; to: 32; stepSize: 2; value: prefs.cardRadius; onMoved: prefs.cardRadius = Math.round(value) } }
-                                SectionTitle { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
-                                    text: "Surface material" }
-                                RowLayout { opacity: root.pageStage(10); transform: Translate { x: -18*(1-root.pageStage(10)); y: -5*(1-root.pageStage(10)) }
-                                    MText { text: "Liquid glass (experimental)"; Layout.fillWidth: true } MSwitch { checked: prefs.glassEnabled; onToggled: prefs.glassEnabled = checked } }
-                                RowLayout { opacity: root.pageStage(11); transform: Translate { x: -18*(1-root.pageStage(11)); y: -5*(1-root.pageStage(11)) }
-                                    visible: prefs.glassEnabled; MText { text: "Glass opacity · " + prefs.glassOpacity + "%"; Layout.fillWidth: true } MSlider { from: 70; to: 98; stepSize: 2; value: prefs.glassOpacity; onMoved: prefs.glassOpacity = Math.round(value) } }
-                                Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
-                                    visible: prefs.glassEnabled; text: "Translucent surfaces with subtle edge highlights. Enable compositor blur for aether-drawer and aether-settings for frosted glass; desktop refraction is not included." }
+                                SectionTitle { opacity: root.pageStage(9); text: "Surface material" }
+                                RowLayout {
+                                    opacity: root.pageStage(10); Layout.fillWidth: true
+                                    MText { text: "Material"; Layout.fillWidth: true }
+                                    LiquidSelect {
+                                        Layout.preferredWidth: 200
+                                        model: ["Solid","Frosted Glass","Liquid Glass"]
+                                        currentIndex: Math.max(0,["solid","frosted","liquid"].indexOf(root.requestedMaterial))
+                                        onActivated: { prefs.materialMode = ["solid","frosted","liquid"][index]; if(index === 2) root.checkRefraction() }
+                                    }
+                                }
+                                RowLayout {
+                                    visible: root.requestedMaterial === "frosted"; opacity: root.pageStage(11)
+                                    MText { text: "Frosted opacity · " + prefs.glassOpacity + "%"; Layout.fillWidth: true }
+                                    MSlider { from: 70; to: 98; stepSize: 2; value: prefs.glassOpacity; onMoved: prefs.glassOpacity = Math.round(value) }
+                                }
+                                ColumnLayout {
+                                    visible: root.requestedMaterial === "liquid"; Layout.fillWidth: true; spacing: 10
+                                    opacity: root.pageStage(12)
+                                    Description { text: "Real desktop refraction through HyprGlass. The compositor samples the windows and wallpaper behind aether and bends that image around the animated glass contour." }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        MText { text: "Liquid tint · " + prefs.liquidTint + "%"; Layout.fillWidth: true }
+                                        MSlider { from: 20; to: 75; stepSize: 1; value: prefs.liquidTint; onMoved: prefs.liquidTint = Math.round(value) }
+                                    }
+                                    SectionTitle { text: "Optical preset" }
+                                    Description { text: "These controls update the Lua preset below. Copy the preset into HyprGlass and reload your compositor config to apply them." }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        MText { text: "Refraction · " + prefs.refractionStrength.toFixed(2); Layout.fillWidth: true }
+                                        MSlider { from: 0; to: 1; stepSize: 0.05; value: prefs.refractionStrength; onMoved: prefs.refractionStrength = value }
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        MText { text: "Chromatic dispersion · " + prefs.glassDispersion.toFixed(2); Layout.fillWidth: true }
+                                        MSlider { from: 0; to: 1; stepSize: 0.05; value: prefs.glassDispersion; onMoved: prefs.glassDispersion = value }
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        MText { text: "Lens height · " + prefs.glassEdgeHeight + " px"; Layout.fillWidth: true }
+                                        MSlider { from: 0; to: 40; stepSize: 2; value: prefs.glassEdgeHeight; onMoved: prefs.glassEdgeHeight = Math.round(value) }
+                                    }
+                                    Description { color: root.refractionReady ? root.muted : root.danger; text: root.refractionStatus }
+                                    Description { text: "Requires a version-matched HyprGlass plugin and the aether layer preset. Until its layer renderer is active, aether uses Solid. Renderer status does not verify that the namespaces were whitelisted." }
+                                    Choice { label: "Check renderer"; enabled: !glassProbe.running; onChosen: root.checkRefraction() }
+                                    LinkRow { label: "HyprGlass installation & compatibility"; url: "https://github.com/hyprnux/hyprglass" }
+                                    TextArea {
+                                        id: glassConfigText
+                                        Layout.fillWidth: true; Layout.preferredHeight: Math.max(100,contentHeight+24)
+                                        text: root.liquidConfig; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
+                                        color: root.foreground; selectionColor: root.primary; selectedTextColor: root.onAccent
+                                        font.family: root.monoFont; font.pixelSize: 11; padding: 12
+                                        background: Rectangle { radius: 16; color: root.cardColor; border.width: 1; border.color: root.outline }
+                                    }
+                                    Choice { label: "Copy HyprGlass Lua"; elevated: true; onChosen: { glassConfigText.selectAll(); glassConfigText.copy() } }
+                                    Description { text: "Merge the snippet with your existing plugin configuration. Aether does not install compositor plugins or change global rules. Check hyprctl layers and adjust names if your compositor reports different namespaces." }
+                                }
+                                Description {
+                                    visible: root.requestedMaterial === "frosted"; opacity: root.pageStage(12)
+                                    text: "Traditional translucency and compositor blur. Use your normal Hyprland blur rules for aether-drawer and aether-settings."
+                                }
+                                Description {
+                                    visible: root.restartForMaterial; opacity: root.pageStage(12); color: root.primary
+                                    text: "Restart aether to switch into or out of Liquid Glass. Wayland layer namespaces cannot change after the window connects."
+                                }
                                 SectionTitle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     text: "Typography" }
                                 Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     text: "Choose the UI typeface. The dropdown lists installed families and the preview updates immediately." }
                                 Rectangle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     
-                                    Layout.fillWidth: true; implicitHeight: 94; radius: 20; color: root.cardColor
+                                    Layout.fillWidth: true; implicitHeight: 94; radius: 20; color: root.materialCard
                                     ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 4
                                         MText { text: "Intelligence, within limits."; font.pixelSize: 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                                         Description { text: root.sans + " · Aa Bb Cc 0123456789"; font.pixelSize: 12 }
@@ -1296,7 +1491,7 @@ ShellRoot {
                                 Rectangle { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
                                     
                                     id: analyticsGraph
-                                    Layout.fillWidth: true; implicitHeight: 280; radius: 22; color: root.cardColor
+                                    Layout.fillWidth: true; implicitHeight: 280; radius: 22; color: root.materialCard
                                     Item {
                                         x: 18; y: 18; width: Math.max(0,analyticsGraph.width-36)*root.pageStage(6); height: Math.max(1,analyticsGraph.height-36); clip: true
                                     Canvas {
@@ -1375,7 +1570,7 @@ ShellRoot {
                                     text: "Activation position" }
                                 Rectangle { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
                                     
-                                    Layout.fillWidth: true; implicitHeight: 144; radius: 20; color: root.cardColor
+                                    Layout.fillWidth: true; implicitHeight: 144; radius: 20; color: root.materialCard
                                     GridLayout { anchors.fill: parent; anchors.margins: 12; columns: 3; rowSpacing: 6; columnSpacing: 6
                                         Repeater {
                                             model: ["top-left","top-center","top-right","left-center","","right-center","bottom-left","bottom-center","bottom-right"]
@@ -1394,7 +1589,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1100; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.glassEnabled=false; prefs.glassOpacity=88 } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1100; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.glassEnabled=false; prefs.glassOpacity=88; prefs.materialMode="solid"; prefs.liquidTint=38; prefs.refractionStrength=0.8; prefs.glassDispersion=0.35; prefs.glassEdgeHeight=28 } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14
@@ -1415,7 +1610,8 @@ ShellRoot {
                                         required property var modelData
                                         property var binding: root.bindingFor(modelData)
                                         Layout.fillWidth: true; implicitHeight: bindingContent.implicitHeight + 24
-                                        radius: 18; color: root.cardColor
+                                        radius: 18; color: root.materialCard
+                                        border.width: 1; border.color: root.outline
                                         opacity: prefs.globalShortcutsEnabled ? 1 : 0.55
                                         ColumnLayout {
                                             id: bindingContent
@@ -1427,6 +1623,7 @@ ShellRoot {
                                                 Layout.fillWidth: true; spacing: 8
                                                 LiquidSelect {
                                                     id: modifierCombo
+                                                    prominent: true
                                                     Layout.fillWidth: true
                                                     model: root.shortcutModifiers
                                                     currentIndex: root.shortcutModifiers.indexOf(actionCard.binding.mods)
@@ -1439,6 +1636,7 @@ ShellRoot {
                                                 }
                                                 LiquidSelect {
                                                     id: keyCombo
+                                                    prominent: true
                                                     Layout.preferredWidth: 104
                                                     model: root.shortcutKeys
                                                     currentIndex: root.shortcutKeys.indexOf(actionCard.binding.key)
@@ -1563,7 +1761,7 @@ ShellRoot {
                                 visible: root.settingsTab === "About"; Layout.fillWidth: true; spacing: 16
                                 Rectangle { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
                                     
-                                    Layout.fillWidth: true; implicitHeight: 196; radius: 26; color: root.cardColor
+                                    Layout.fillWidth: true; implicitHeight: 196; radius: 26; color: root.materialCard
                                     ColumnLayout { anchors.fill: parent; anchors.margins: 24; spacing: 8
                                         RowLayout { Layout.fillWidth: true
                                             Description { text: "INDEPENDENT SOFTWARE"; font.pixelSize: 11; font.letterSpacing: 1.3 }

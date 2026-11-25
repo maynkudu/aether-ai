@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — Dropdown polish and refractive material
+
+- Slower page stagger, permanent GitHub and shortcut surfaces, original Feather chevrons, hover/keyboard option states, top-left clipped dropdown growth and grid palette previews.
+- Separate Solid, Frosted and Liquid Glass materials. Optional real compositor refraction via HyprGlass contour layers, readiness status, copyable Lua configuration and tint slider; safe solid fallback, no automatic plugin installation or compositor edits.
+
 ## Unreleased — Fluid control refinement
 
 - Shared liquid-style native dropdowns for appearance, typography, shortcut choices and update channels.

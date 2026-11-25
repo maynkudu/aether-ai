@@ -24,3 +24,5 @@ Remote site assets and the Grok archive layout still require an end-to-end insta
 ### GitHub mark and provider grouping
 
 The small GitHub mark in the sidebar and repository link uses the original vector path from [Primer Octicons](https://github.com/primer/octicons/blob/main/icons/mark-github-24.svg), Git blob `81949e7b460a7bbf1cb2431462f6bd947e32f0ce`. The upstream license is retained in `shell/OCTICONS-LICENSE`. FreeGG is displayed using the AgentRouter asset at the maintainer's request; they remain distinct provider identities.
+
+The dropdown chevron uses the original Feather `chevron-down` geometry, exposed as `FiChevronDown` by React Icons. See [Feather](https://github.com/feathericons/feather/blob/main/icons/chevron-down.svg) and `shell/FEATHER-LICENSE` (MIT).
