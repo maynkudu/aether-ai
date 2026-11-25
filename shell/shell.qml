@@ -1008,14 +1008,14 @@ ShellRoot {
             // Keep popups inside the existing layer-shell surface; no native popup window.
             popupType: Popup.Item
             property bool above: false
-            property real availableHeight: Math.max(1,settingsPanel.height-28)
+            property real menuSpaceHeight: Math.max(1,settingsPanel.height-28)
             property int columns: liquidSelect.themeGrid && width >= 340 ? 2 : 1
             property real cell: liquidSelect.themeGrid ? 72 : 44
             property real growth: 0
             property real shownContent: root.quintic((growth-0.24)/0.76)
             property real fullHeight: Math.ceil(liquidSelect.count/columns)*cell+12
             width: liquidSelect.width
-            height: Math.max(1,Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight,availableHeight))
+            height: Math.max(1,Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight,menuSpaceHeight))
             y: above ? -height-6 : liquidSelect.height+6
             margins: 8
             padding: 6
@@ -1027,7 +1027,7 @@ ShellRoot {
                 let below = Math.max(0,settingsPanel.height-point.y-liquidSelect.height-14)
                 let upper = Math.max(0,point.y-14)
                 above = below < Math.min(liquidSelect.themeGrid ? 320 : 300,fullHeight) && upper > below
-                availableHeight = above ? upper : below
+                menuSpaceHeight = above ? upper : below
             }
             onClosed: if (root.activeDropdown === liquidPopup) root.activeDropdown = null
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
