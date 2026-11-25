@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-labelledby="wisp-title wisp-description">
+<title id="wisp-title">Wisp — aether.ai mascot</title>
+<desc id="wisp-description">Wisp gently blinks, floats, changes expression and glows in an eighteen-second loop.</desc>
+<style>
+.float { animation: drift 18s cubic-bezier(.42,0,.2,1) infinite; }
+.blob { transform-origin:48px 48px; animation:blob 18s cubic-bezier(.4,0,.2,1) infinite; }
+.blink { animation:blink 18s ease-in-out infinite; }
+.left-eye { transform-origin:35px 43px; } .right-eye { transform-origin:57px 43px; }
+.expression-left { transform-origin:35px 43px; animation:curious-left 18s ease-in-out infinite; }
+.expression-right { transform-origin:57px 43px; animation:curious-right 18s ease-in-out infinite; }
+.normal-eyes { animation:normal-eyes 18s ease-in-out infinite; }
+.happy-eyes { opacity:0; animation:happy-eyes 18s ease-in-out infinite; }
+.halo { opacity:0; animation:glow 18s ease-in-out infinite; }
+@keyframes drift {0%,18%,40%,63%,89%,100%{transform:translate(0,0)}27%{transform:translate(0,-3.4px)}34%{transform:translate(0,-1.5px)}72%{transform:translate(0,-3px)}81%{transform:translate(0,-1px)}}
+@keyframes blob {0%,19%,39%,53%,64%,89%,100%{transform:scale(1,1)}24%{transform:scale(1.027,.972)}28%{transform:scale(.975,1.035)}35%{transform:scale(1.012,.99)}69%{transform:scale(1.02,.98)}74%{transform:scale(.98,1.026)}82%{transform:scale(1.008,.993)}}
+@keyframes blink {0%,11.9%,14%,33.9%,35.8%,54.2%,56.1%,85.2%,87.1%,100%{transform:scaleY(1)}12.65%,13.05%,34.65%,35%,54.95%,55.35%,85.95%,86.35%{transform:scaleY(.085)}}
+@keyframes curious-left {0%,43%,55%,100%{transform:scale(1)}47%,51%{transform:translateY(-.6px) scale(1.08,1.12)}}
+@keyframes curious-right {0%,43%,55%,100%{transform:scale(1)}47%,51%{transform:translateY(.4px) scale(.95,.78)}}
+@keyframes normal-eyes {0%,67%,81%,100%{opacity:1}69%,78.8%{opacity:0}}
+@keyframes happy-eyes {0%,67%,81%,100%{opacity:0}69%,78.8%{opacity:1}}
+@keyframes glow {0%,24%,41%,65%,87%,100%{opacity:0}31%{opacity:.25}74%{opacity:.42}}
+@media (prefers-reduced-motion:reduce){.float,.blob,.blink,.expression-left,.expression-right,.normal-eyes,.happy-eyes,.halo{animation:none!important}}
+</style>
+<defs><path id="wisp-body" d="M48 10C68 10 82 25 82 43C82 57 75 65 64 71C58 74 54 78 53 86C47 82 44 77 44 71C35 79 24 77 17 69C10 60 11 47 15 35C20 20 32 10 48 10Z"/>
+<mask id="wisp-eyes" x="0" y="0" width="96" height="96" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" style="mask-type:luminance">
+<rect width="96" height="96" fill="white"/>
+<g class="normal-eyes" fill="black"><g class="expression-left"><ellipse class="blink left-eye" cx="35" cy="43" rx="5" ry="7"/></g><g class="expression-right"><ellipse class="blink right-eye" cx="57" cy="43" rx="5" ry="7"/></g></g>
+<g class="happy-eyes" fill="none" stroke="black" stroke-width="3.7" stroke-linecap="round"><path d="M30.4 44.5 Q35 36.8 39.6 44.5"/><path d="M52.4 44.5 Q57 36.8 61.6 44.5"/></g></mask>
+<filter id="wisp-glow" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="blur"/><feComposite in="blur" in2="SourceAlpha" operator="out" result="rim"/><feFlood flood-color="#ffffff" result="ink"/><feComposite in="ink" in2="rim" operator="in"/></filter></defs>
+<g class="float"><g class="blob"><use href="#wisp-body" fill="#ffffff" class="halo" filter="url(#wisp-glow)"/><use href="#wisp-body" fill="#ffffff" mask="url(#wisp-eyes)"/></g></g></svg>

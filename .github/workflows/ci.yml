@@ -31,6 +31,7 @@ jobs:
         shell: bash
         run: |
           python scripts/release_check.py
+          python scripts/test_branding.py
           bash -n install.sh
           bash -n shell/install.sh
           bash -n scripts/ci-smoke.sh
@@ -80,7 +81,7 @@ jobs:
           tar -xf "$stage/source.tar" -C "$stage"
           cp Cargo.lock "$stage/aether-ai/"
           tar -czf dist/aether-source.tar.gz -C "$stage" aether-ai
-          tar -czf dist/aether-arch-linux-x86_64.tar.gz -C "$GITHUB_WORKSPACE/target/release" aether -C "$GITHUB_WORKSPACE" shell/shell.qml scripts/update.py systemd LICENSE README.md CHANGELOG.md Cargo.lock
+          tar -czf dist/aether-arch-linux-x86_64.tar.gz -C "$GITHUB_WORKSPACE/target/release" aether -C "$GITHUB_WORKSPACE" shell/shell.qml scripts/update.py systemd LICENSE README.md CHANGELOG.md Cargo.lock docs/assets/logo.svg docs/assets/logo.png docs/assets/branding
           # Check the actual archives before uploading them.
           tar -tzf dist/aether-source.tar.gz > "$stage/source-files.txt"
           tar -tzf dist/aether-arch-linux-x86_64.tar.gz > "$stage/binary-files.txt"
@@ -123,6 +124,7 @@ jobs:
         run: |
           if [[ ! -f Cargo.lock ]]; then cargo generate-lockfile; fi
           cargo test -p aether-ai --locked
+          cargo test -p aether-desktop --locked
           cargo build --release -p aether-ai -p aether-desktop --locked
       - name: Mock Codex integration (macOS)
         if: runner.os == 'macOS'

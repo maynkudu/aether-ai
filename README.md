@@ -26,13 +26,21 @@ Built with a shared Rust core, an independent Quickshell overlay for Linux, and 
 
 <sub>Illustrative interface artwork with sample data, not a screenshot. Actual layout and colours depend on preferences.</sub>
 
+## Meet Wisp
+
+<img src="docs/assets/branding/wisp-light.svg" width="76" align="right" alt="Wisp, the aether.ai mascot">
+
+Wisp is our little companion for keeping AI quotas in view. The project is still **aether.ai**; Wisp is its mascot and visual identity. The original vector silhouette works at small icon sizes and in both monochrome themes. The native apps animate Wisp with occasional blinking, floating, breathing, expressions and a gentle halo. Animation can be disabled in Appearance; Linux Reduced motion also freezes Wisp.
+
+[Brand assets and motion guide](docs/BRANDING.md) · [Animated SVG (download and open in browser)](docs/assets/branding/wisp-animated-light.svg)
+
 ## Features
 
 | | |
 |---|---|
 | **At-a-glance quotas** — Session and weekly limits, reset information, grid cards and circular gauges. | **Multiple accounts** — Local Codex homes, experimental T3 discovery and independent visibility. |
 | **Local analytics** — Real recorded quota history, line and bar views, 24h–90d ranges. | **Fluid interactions** — Corner-anchored drawer, spring motion, staggered pages, directional dropdowns and scroll fades. |
-| **Personal by design** — Eight palettes, curated typefaces, configurable hotspots and shortcuts. | **Stay current** — Linux opt-in updates, Stable/Development channels and previous-build rollback. |
+| **Personal by design** — Wisp, eight palettes, curated typefaces, configurable hotspots and shortcuts. | **Stay current** — Linux opt-in updates, Stable/Development channels and previous-build rollback. |
 
 ### Appearance
 
@@ -160,6 +168,7 @@ See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-
 | [Architecture](docs/ARCHITECTURE.md) | Workspace structure and shared interfaces |
 | [Release engineering](docs/RELEASING.md) | CI gates, versioning, builds and publication |
 | [Changelog](CHANGELOG.md) | Development and release history |
+| [Wisp branding](docs/BRANDING.md) | Mascot, vector assets and motion |
 | [Brand assets](shell/BRAND-ASSETS.md) | Artwork provenance and third-party licenses |
 
 ## Roadmap

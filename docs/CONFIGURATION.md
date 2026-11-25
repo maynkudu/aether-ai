@@ -40,3 +40,7 @@ Recorded remaining quota percentages, not token counts or spending. The daemon p
 | Preferences | ~/.config/quickshell/aether/preferences.ini | ~/Library/Application Support/aether/desktop-preferences.json | %LOCALAPPDATA%/aether/desktop-preferences.json |
 
 XDG cache/state overrides are supported. Linux configuration respects XDG_CONFIG_HOME. Unix files use restrictive creation permissions; Windows inherits user-profile ACLs. Names and paths in cache/history are private. No telemetry or cloud storage. Optional network requests include Codex, asset retrieval and enabled update checks.
+
+## Wisp
+
+Wisp is the aether.ai mascot. Appearance → Animate Wisp controls the 18-second idle motion (blink, float, breathing, curious/happy expressions and halo). Reduced motion overrides the preference on Linux. Static icons retain the original transparent silhouette. See [branding](BRANDING.md).

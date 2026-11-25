@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Wisp identity
+
+- Adopt Wisp as the official mascot while retaining aether.ai as the product name. Replace the spiral in the README, QML headers and native icons.
+- Add static and animated SVGs, wordmark lockups, browser preview and shared motion tracks; native 18-second idle animations with blinking, float, breathing, curious/happy expressions and halo. Respect Reduced motion on Linux and persist the independent mascot animation preference on all frontends.
+- Include branding assets in Linux archives and test native mascot timing in desktop CI.
+
 ### Simplification, identity and CI reliability
 
 - Remove all glass-material preferences, renderer probes and setup UI. Retain opaque themes, liquid motion and Caelestia detection.

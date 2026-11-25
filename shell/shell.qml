@@ -321,7 +321,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1100; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6 }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1100; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -477,18 +477,68 @@ ShellRoot {
         }
     }
     // Monochrome vector trace of the approved spiral brand mark.
-    component AetherMark: Item {
-        id: brandMark
+    // Original Wisp geometry; shared 18-second motion timing from docs/assets/branding.
+    // Each visible instance has a local clock. Hidden instances stop entirely.
+    component WispMark: Item {
+        id: wisp
         implicitWidth: 28; implicitHeight: 28
-        Shape {
+        property bool animate: true
+        property bool surfaceActive: root.settingsOpen
+        property color ink: root.foreground
+        property real phase: 0
+        property bool moving: animate && visible && prefs.wispMotion && prefs.motionStyle !== "reduced" && surfaceActive
+        readonly property var tracks: ({"drift":[[0,0],[18,0],[27,-3.4],[34,-1.5],[40,0],[63,0],[72,-3],[81,-1],[89,0],[100,0]],"sx":[[0,1],[19,1],[24,1.027],[28,0.975],[35,1.012],[39,1],[64,1],[69,1.02],[74,0.98],[82,1.008],[89,1],[100,1]],"sy":[[0,1],[19,1],[24,0.972],[28,1.035],[35,0.99],[39,1],[64,1],[69,0.98],[74,1.026],[82,0.993],[89,1],[100,1]],"blink":[[0,1],[11.9,1],[12.65,0.085],[13.05,0.085],[14,1],[33.9,1],[34.65,0.085],[35,0.085],[35.8,1],[54.2,1],[54.95,0.085],[55.35,0.085],[56.1,1],[85.2,1],[85.95,0.085],[86.35,0.085],[87.1,1],[100,1]],"curious":[[0,0],[43,0],[47,1],[51,1],[55,0],[100,0]],"happy":[[0,0],[67,0],[69,1],[78.8,1],[81,0],[100,0]],"glow":[[0,0],[24,0],[31,0.25],[41,0],[65,0],[74,0.42],[87,0],[100,0]]})
+        function sample(points) {
+            for (let i=1;i<points.length;i++) {
+                if (phase <= points[i][0]) {
+                    let t = root.smooth((phase-points[i-1][0])/(points[i][0]-points[i-1][0]))
+                    return points[i-1][1] + (points[i][1]-points[i-1][1])*t
+                }
+            }
+            return points[points.length-1][1]
+        }
+        function ellipse(x,y,rx,ry) {
+            return "M"+x+" "+(y-ry)+"A"+rx+" "+ry+" 0 1 0 "+x+" "+(y+ry)+"A"+rx+" "+ry+" 0 1 0 "+x+" "+(y-ry)+"Z"
+        }
+        function smile(x) {
+            return "M"+(x-4.6)+" 44.5Q"+x+" 36.8 "+(x+4.6)+" 44.5Q"+(x+5.8)+" 46.1 "+(x+3.1)+" 46.1Q"+x+" 40.7 "+(x-3.1)+" 46.1Q"+(x-5.8)+" 46.1 "+(x-4.6)+" 44.5Z"
+        }
+        readonly property real blink: sample(tracks.blink)
+        readonly property real curious: sample(tracks.curious)
+        readonly property real happy: sample(tracks.happy)
+        readonly property real glow: sample(tracks.glow)
+        readonly property string silhouette: "M48 10C68 10 82 25 82 43C82 57 75 65 64 71C58 74 54 78 53 86C47 82 44 77 44 71C35 79 24 77 17 69C10 60 11 47 15 35C20 20 32 10 48 10Z"
+        readonly property string eyes: ellipse(35,43-.6*curious,5*(1+.08*curious),7*blink*(1+.12*curious)) + ellipse(57,43+.4*curious,5*(1-.05*curious),7*blink*(1-.22*curious))
+        NumberAnimation on phase {
+            running: wisp.moving; from: 0; to: 100; duration: 18000; loops: Animation.Infinite
+        }
+        onMovingChanged: if (!moving) phase = 0
+        Item {
             anchors.centerIn: parent
-            width: 660; height: 640
-            scale: Math.min(brandMark.width/660,brandMark.height/640)
-            preferredRendererType: Shape.CurveRenderer
-            ShapePath {
-                strokeColor: "transparent"; strokeWidth: -1
-                fillColor: root.foreground; fillRule: ShapePath.OddEvenFill
-                PathSvg { path: "M118,130 95,159 81,181 66,210 56,235 49,258 42,296 41,341 45,371 52,400 59,421 74,454 99,495 114,514 134,535 161,557 186,573 227,591 262,600 278,602 326,601 365,592 392,581 409,572 429,558 399,576 365,589 354,592 347,592 332,587 312,574 295,554 288,540 283,524 281,495 284,478 292,457 303,440 319,424 334,414 357,405 378,402 393,403 410,407 425,414 434,420 447,433 456,449 459,461 459,475 456,487 452,495 440,508 424,516 406,517 392,512 382,503 376,490 376,478 379,470 385,463 394,458 405,458 410,460 416,466 418,471 417,479 419,469 416,462 409,455 402,452 387,452 373,459 367,465 361,475 358,485 358,500 364,517 376,531 389,539 401,543 419,544 434,541 448,535 462,525 480,502 482,555 489,575 502,590 513,596 525,599 615,599 621,596 612,592 601,579 596,567 593,551 593,272 591,243 586,213 576,180 564,154 544,123 519,95 503,81 480,65 451,50 433,43 406,35 367,29 321,29 272,37 237,48 218,56 193,69 171,83 142,106Z M380,296 406,305 435,322 458,344 466,356 475,377 480,402 479,439 470,471 459,490 458,488 463,479 467,462 464,439 459,427 451,414 437,399 429,393 414,385 392,379 368,379 355,382 337,389 315,404 301,419 292,432 284,448 278,466 275,486 275,499 278,520 283,536 297,561 316,580 334,590 343,593 336,595 303,595 281,591 255,582 239,574 215,557 194,535 177,507 170,488 166,467 166,436 170,415 176,397 189,372 202,354 233,325 266,306 292,297 319,292 345,291Z M447,201 462,225 468,238 478,271 481,304 480,368 466,337 443,305 418,282 391,265 357,252 323,246 284,246 247,253 216,264 194,275 177,286 158,301 139,320 127,335 114,355 104,375 96,396 88,435 89,474 88,475 86,473 62,427 48,382 45,359 45,324 47,308 57,271 74,236 100,201 130,173 169,148 211,131 255,122 295,121 338,128 364,137 385,147 418,170Z" }
+            width: 96; height: 96
+            scale: Math.min(wisp.width,wisp.height)/96
+            Item {
+                anchors.fill: parent
+                transform: [
+                    Translate { y: wisp.sample(wisp.tracks.drift) },
+                    Scale { origin.x: 48; origin.y: 48; xScale: wisp.sample(wisp.tracks.sx); yScale: wisp.sample(wisp.tracks.sy) }
+                ]
+                // Subtle native halo approximation; no blur or compositor dependency.
+                Shape {
+                    anchors.fill: parent; scale: 1.09; opacity: wisp.glow*.22; visible: opacity>0
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath { strokeWidth: -1; fillColor: wisp.ink; PathSvg { path: wisp.silhouette } }
+                }
+                Shape {
+                    anchors.fill: parent; opacity: 1-wisp.happy; visible: opacity>0
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath { strokeWidth: -1; fillColor: wisp.ink; fillRule: ShapePath.OddEvenFill; PathSvg { path: wisp.silhouette+wisp.eyes } }
+                }
+                Shape {
+                    anchors.fill: parent; opacity: wisp.happy; visible: opacity>0
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath { strokeWidth: -1; fillColor: wisp.ink; fillRule: ShapePath.OddEvenFill; PathSvg { path: wisp.silhouette+wisp.smile(35)+wisp.smile(57) } }
+                }
             }
         }
     }
@@ -604,6 +654,7 @@ ShellRoot {
                         opacity: root.stagger(0)
                         transform: Translate { y: (1 - heading.opacity) * 12 }
                         Layout.fillWidth: true; spacing: 12
+                        WispMark { Layout.preferredWidth: 38; Layout.preferredHeight: 38; surfaceActive: root.opened }
                         ColumnLayout {
                             Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 4
                             MText { text: "aether.ai"; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -1.3; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1134,7 +1185,7 @@ ShellRoot {
                         anchors.fill: parent; anchors.margins: 14; spacing: 8
                         RowLayout {
                             Layout.fillWidth: true; spacing: 8
-                            AetherMark { Layout.preferredWidth: 28; Layout.preferredHeight: 28 }
+                            WispMark { Layout.preferredWidth: 28; Layout.preferredHeight: 28; animate: root.settingsTab !== "About" }
                             MText { text: "aether.ai"; font.pixelSize: settingsPanel.width < 680 ? 16 : 26; font.weight: Font.DemiBold; font.letterSpacing: -0.9; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
                         Description { text: "Control centre"; font.pixelSize: 11 }
@@ -1349,6 +1400,8 @@ ShellRoot {
                                     MText { text: "Motion style"; Layout.fillWidth: true }
                                     LiquidSelect { Layout.preferredWidth: 180; model: ["Liquid","Smooth","Reduced"]; currentIndex: Math.max(0,["liquid","smooth","reduced"].indexOf(prefs.motionStyle)); onActivated: prefs.motionStyle = ["liquid","smooth","reduced"][index] }
                                 }
+                                RowLayout { MText { text: "Animate Wisp"; Layout.fillWidth: true } MSwitch { checked: prefs.wispMotion; enabled: prefs.motionStyle !== "reduced"; onToggled: prefs.wispMotion = checked } }
+                                Description { text: "Wisp is aether.ai’s mascot. Reduced motion keeps Wisp still." }
                                 RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                                 RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
@@ -1568,7 +1621,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1100; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6 } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1100; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14
@@ -1741,7 +1794,7 @@ ShellRoot {
                                 visible: root.settingsTab === "About"; Layout.fillWidth: true; spacing: 16
                                 Rectangle { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
                                     
-                                    Layout.fillWidth: true; implicitHeight: 196; radius: 26; color: root.cardColor
+                                    Layout.fillWidth: true; implicitHeight: 222; radius: 26; color: root.cardColor
                                     ColumnLayout { anchors.fill: parent; anchors.margins: 24; spacing: 8
                                         RowLayout { Layout.fillWidth: true
                                             Description { text: "INDEPENDENT SOFTWARE"; font.pixelSize: 11; font.letterSpacing: 1.3 }
@@ -1749,10 +1802,11 @@ ShellRoot {
                                         }
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 12
-                                            AetherMark { Layout.preferredWidth: 46; Layout.preferredHeight: 46 }
+                                            WispMark { Layout.preferredWidth: 46; Layout.preferredHeight: 46 }
                                             MText { text: "aether.ai"; font.pixelSize: 48; font.weight: Font.DemiBold; font.letterSpacing: -2.2; Layout.fillWidth: true; elide: Text.ElideRight }
                                         }
                                         Description { text: "Intelligence, within limits." }
+                                        Description { text: "Meet Wisp, our little quota companion."; font.pixelSize: 12 }
                                         Item { Layout.fillHeight: true }
                                         RowLayout { Layout.fillWidth: true
                                             MText { text: "v" + root.version; font.family: root.monoFont; color: root.primary }
