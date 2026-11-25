@@ -67,6 +67,7 @@ ShellRoot {
         } }
     }
     function brandSource(name) {
+        if (name === "codex") name = "openai"
         let variant = root.lightTheme ? "light" : "dark"
         let entry = root.brandIndex[name]
         let filename = entry && entry[variant]
@@ -79,8 +80,22 @@ ShellRoot {
     property string status: "Waiting for cache"
     property var palette: ({})
     property string schemeMode: "dark"
-    property bool themeActive: prefs.followTheme && !!palette.surface && !!palette.onSurface
-    property bool lightTheme: themeActive && schemeMode === "light"
+    // Mono is the new default. Caelestia is opt-in, as are built-in schemes.
+    property var schemeChoices: [
+        {id:"mono",name:"Mono",note:"Pure black · white",swatch:["#000000","#ffffff","#9b9b9b"],light:false},
+        {id:"mono-light",name:"Mono Light",note:"White · ink",swatch:["#ffffff","#171717","#606060"],light:true},
+        {id:"caelestia",name:"Caelestia",note:"Follow the system palette",swatch:[palette.surface || "#202020",palette.primary || "#bcbcbc",palette.tertiary || "#929292"]},
+        {id:"midnight",name:"Midnight",note:"Deep navy · ice",swatch:["#0b1220","#9bcaff","#a8b9ff"],light:false,p:{surface:"#0b1220",onSurface:"#edf3ff",surfaceContainer:"#162033",primaryContainer:"#24374f",outlineVariant:"#34455f",surfaceContainerHighest:"#2a3951",primary:"#9bcaff",tertiary:"#a8b9ff",onSurfaceVariant:"#b1c3da",error:"#ffb4ab",onPrimaryContainer:"#e0edff"}},
+        {id:"lavender",name:"Lavender",note:"Soft violet · rose",swatch:["#181725","#cbbaff","#f2b7db"],light:false,p:{surface:"#181725",onSurface:"#f3eeff",surfaceContainer:"#25243a",primaryContainer:"#393052",outlineVariant:"#494361",surfaceContainerHighest:"#37344e",primary:"#cbbaff",tertiary:"#f2b7db",onSurfaceVariant:"#c6bddb",error:"#ffb4ab",onPrimaryContainer:"#f1e8ff"}},
+        {id:"forest",name:"Forest",note:"Evergreen · sage",swatch:["#0e1b17","#a5d7b7","#d2cb99"],light:false,p:{surface:"#0e1b17",onSurface:"#e4f3e9",surfaceContainer:"#1b2c24",primaryContainer:"#2c4537",outlineVariant:"#3c5445",surfaceContainerHighest:"#304638",primary:"#a5d7b7",tertiary:"#d2cb99",onSurfaceVariant:"#b8cdbf",error:"#ffb4ab",onPrimaryContainer:"#e2f6e8"}},
+        {id:"ember",name:"Ember",note:"Charcoal · warm amber",swatch:["#1b1512","#ffc28b","#e8b4a1"],light:false,p:{surface:"#1b1512",onSurface:"#fff0e6",surfaceContainer:"#2b201b",primaryContainer:"#4b3224",outlineVariant:"#614638",surfaceContainerHighest:"#48352b",primary:"#ffc28b",tertiary:"#e8b4a1",onSurfaceVariant:"#d6bfb2",error:"#ffb4ab",onPrimaryContainer:"#ffe6ce"}},
+        {id:"paper",name:"Paper",note:"Warm ivory · graphite",swatch:["#f8f5ef","#72523b","#70634c"],light:true,p:{surface:"#f8f5ef",onSurface:"#262019",surfaceContainer:"#eee9df",primaryContainer:"#e7d8c6",outlineVariant:"#cfc4b6",surfaceContainerHighest:"#e1d8cb",primary:"#72523b",tertiary:"#70634c",onSurfaceVariant:"#645b51",error:"#a52d2d",onPrimaryContainer:"#352419"}}
+    ]
+    property var selectedScheme: schemeChoices.find(x => x.id === prefs.colorScheme) || schemeChoices[0]
+    property bool themeActive: prefs.colorScheme === "caelestia" && !!palette.surface && !!palette.onSurface
+    property bool lightTheme: themeActive ? schemeMode === "light" : !!selectedScheme.light
+    property var activePalette: themeActive ? palette : selectedScheme.p || ({})
+    property color onAccent: tone("onPrimary", lightTheme ? "#ffffff" : "#101010")
     property var installedFonts: Qt.fontFamilies()
     property string sans: prefs.fontChoice !== "auto" && installedFonts.includes(prefs.fontChoice) ? prefs.fontChoice : installedFonts.indexOf("Inter") >= 0 ? "Inter" : installedFonts.indexOf("Manrope") >= 0 ? "Manrope" : installedFonts.indexOf("Rubik") >= 0 ? "Rubik" : "Noto Sans"
     property string monoFont: installedFonts.indexOf("JetBrains Mono") >= 0 ? "JetBrains Mono" : sans
@@ -102,8 +117,8 @@ ShellRoot {
     property real panelWidth: Math.max(1, drawer.width - 12)
     property real panelHeight: Math.min(drawer.height - 12, animatedHeight)
     property bool rings: prefs.viewMode === "rings"
-    property color sessionColor: tone("primary", "#e8e8e8")
-    property color weeklyColor: tone("tertiary", "#9b9b9b")
+    property color sessionColor: tone("primary", lightTheme ? "#222222" : "#e8e8e8")
+    property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
     function stagger(i) {
         if (!prefs.staggerEnabled) return smooth((reveal - 0.16) / 0.78)
         let delay = 0.14 + Math.min(i, 10) * 0.045
@@ -117,7 +132,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24 }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono" }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -138,14 +153,14 @@ ShellRoot {
         return /^[a-z0-9]{1,64}$/.test(s) ? s : ""
     }
 
-    function tone(key, fallback) { return (themeActive && palette[key]) || fallback }
-    property color surface: tone("surface", "#000000")
+    function tone(key, fallback) { return activePalette[key] || fallback }
+    property color surface: tone("surface", lightTheme ? "#ffffff" : "#000000")
     property color cardColor: tone("surfaceContainer", lightTheme ? "#ececec" : "#171717")
     property color buttonColor: tone("primaryContainer", lightTheme ? "#e1e1e1" : "#292929")
     property color outline: tone("outlineVariant", lightTheme ? "#c7c7c7" : "#282828")
     property color track: tone("surfaceContainerHighest", lightTheme ? "#dddddd" : "#333333")
     property color primary: tone("primary", lightTheme ? "#000000" : "#ffffff")
-    property color foreground: tone("onSurface", "#ffffff")
+    property color foreground: tone("onSurface", lightTheme ? "#171717" : "#ffffff")
     property color muted: tone("onSurfaceVariant", lightTheme ? "#555555" : "#bdbdbd")
     property color iconColor: lightTheme ? "#000000" : "#ffffff"
     component ProviderIcon: Item {
@@ -155,7 +170,11 @@ ShellRoot {
         // First-party provider marks have their own namespace; never reuse legacy provider SVGs.
         Image {
             id: mono
-            anchors.fill: parent
+            anchors.centerIn: parent
+            // The upstream Blossom SVG has its own generous clear space. Keep
+            // the original artboard; size its image to match other visible marks.
+            width: parent.width * ((glyph.name === "codex" || glyph.name === "openai") ? 1.55 : 1)
+            height: parent.height * ((glyph.name === "codex" || glyph.name === "openai") ? 1.55 : 1)
             source: glyph.name === "settings" ? Qt.resolvedUrl("icons/settings" + (root.lightTheme ? "-black.png" : "-white.png")) : glyph.name ? root.brandSource(glyph.name) : ""
             mipmap: true
             smooth: true
@@ -192,7 +211,7 @@ ShellRoot {
                 width: control.checked ? 20 : 16; height: width; radius: width / 2
                 anchors.verticalCenter: parent.verticalCenter
                 x: control.checked ? parent.width - width - 4 : 6
-                color: control.checked ? root.surface : root.muted
+                color: control.checked ? root.onAccent : root.muted
                 Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
             }
             Behavior on color { ColorAnimation { duration: 150 } }
@@ -212,7 +231,7 @@ ShellRoot {
             implicitWidth: 16; implicitHeight: 24; radius: 8; color: root.primary
         }
     }
-    property color danger: tone("error", "#ffffff")
+    property color danger: tone("error", lightTheme ? "#a52d2d" : "#ffffff")
     property color onPrimaryContainer: tone("onPrimaryContainer", root.foreground)
     function resetText(ts) {
         if (!ts) return "Reset unknown"
@@ -528,7 +547,7 @@ ShellRoot {
         radius: 18
         color: selected ? root.primary : choiceMouse.containsMouse ? root.track : root.cardColor
         Behavior on color { ColorAnimation { duration: 160 } }
-        MText { id: choiceText; anchors.centerIn: parent; text: choice.label; color: choice.selected ? root.surface : root.foreground; font.pixelSize: 13; font.weight: Font.Medium }
+        MText { id: choiceText; anchors.centerIn: parent; text: choice.label; color: choice.selected ? root.onAccent : root.foreground; font.pixelSize: 13; font.weight: Font.Medium }
         MouseArea { id: choiceMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: choice.chosen() }
     }
     component SectionTitle: MText { font.pixelSize: 18; font.weight: Font.DemiBold; Layout.fillWidth: true }
@@ -593,7 +612,7 @@ ShellRoot {
                                 Layout.fillWidth: true; implicitHeight: 44; radius: 22
                                 color: root.settingsTab === modelData ? root.primary : navMouse.containsMouse ? root.track : "transparent"
                                 Behavior on color { ColorAnimation { duration: 150 } }
-                                MText { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData; color: root.settingsTab === parent.modelData ? root.surface : root.foreground; font.weight: Font.Medium; font.pixelSize: 13 }
+                                MText { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData; color: root.settingsTab === parent.modelData ? root.onAccent : root.foreground; font.weight: Font.Medium; font.pixelSize: 13 }
                                 MouseArea { id: navMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.settingsTab = parent.modelData; pageScroll.contentY = 0; if (root.settingsTab === "Analytics") root.refreshHistory() } }
                             }
                         }
@@ -655,16 +674,72 @@ ShellRoot {
                                     Choice { label: "Grid"; selected: prefs.viewMode === "grid"; onChosen: prefs.viewMode = "grid" }
                                     Choice { label: "Rings"; selected: prefs.viewMode === "rings"; onChosen: prefs.viewMode = "rings" }
                                 }
-                                RowLayout { MText { text: "Follow Caelestia"; Layout.fillWidth: true } MSwitch { checked: prefs.followTheme; onToggled: prefs.followTheme = checked } }
+                                SectionTitle { text: "Colour scheme" }
+                                Description { text: "Choose a built-in palette or follow Caelestia. Mono is the default." }
+                                GridLayout {
+                                    Layout.fillWidth: true; columns: pageScroll.width >= 440 ? 2 : 1; columnSpacing: 10; rowSpacing: 10
+                                    Repeater {
+                                        model: root.schemeChoices
+                                        delegate: Rectangle {
+                                            id: schemeTile
+                                            required property var modelData
+                                            property bool active: prefs.colorScheme === modelData.id
+                                            Layout.fillWidth: true; Layout.preferredHeight: 82
+                                            radius: 16; color: schemeMouse.containsMouse ? root.track : root.cardColor
+                                            border.width: active ? 2 : 1; border.color: active ? root.primary : root.outline
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.margins: 12; spacing: 12
+                                                Rectangle {
+                                                    Layout.preferredWidth: 42; Layout.preferredHeight: 44; radius: 12; color: schemeTile.modelData.swatch[0]
+                                                    border.width: 1; border.color: root.outline
+                                                    Row {
+                                                        anchors.centerIn: parent; spacing: 3
+                                                        Repeater { model: schemeTile.modelData.swatch.slice(1); delegate: Rectangle { required property string modelData; width: 12; height: 21; radius: 6; color: modelData } }
+                                                    }
+                                                }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; spacing: 4
+                                                    MText { text: schemeTile.modelData.name; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                                                    Description { text: schemeTile.modelData.note; font.pixelSize: 11 }
+                                                }
+                                                MText { visible: schemeTile.active; text: "✓"; color: root.primary }
+                                            }
+                                            MouseArea { id: schemeMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: prefs.colorScheme = schemeTile.modelData.id }
+                                        }
+                                    }
+                                }
+                                Description { visible: prefs.colorScheme === "caelestia" && !root.themeActive; text: "Caelestia palette unavailable. Using the Mono fallback." }
                                 RowLayout { MText { text: "Drawer width · " + prefs.layoutWidth + " px"; Layout.fillWidth: true } MSlider { from: 360; to: 560; stepSize: 10; value: prefs.layoutWidth; onMoved: prefs.layoutWidth = Math.round(value) } }
                                 RowLayout { MText { text: "Card rounding · " + prefs.cardRadius + " px"; Layout.fillWidth: true } MSlider { from: 8; to: 32; stepSize: 2; value: prefs.cardRadius; onMoved: prefs.cardRadius = Math.round(value) } }
                                 SectionTitle { text: "Typography" }
-                                Flow {
-                                    Layout.fillWidth: true; spacing: 8
-                                    Repeater { model: ["auto","Inter","Manrope","Rubik","Noto Sans"].filter(n => n === "auto" || root.installedFonts.includes(n))
-                                        delegate: Choice { required property string modelData; label: modelData === "auto" ? "Automatic" : modelData; selected: prefs.fontChoice === modelData; onChosen: prefs.fontChoice = modelData }
+                                Description { text: "Choose the UI typeface. The preview uses the selected family; unavailable fonts are marked until installed." }
+                                Rectangle {
+                                    Layout.fillWidth: true; implicitHeight: 94; radius: 20; color: root.cardColor
+                                    ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 4
+                                        MText { text: "Intelligence, within limits."; font.pixelSize: 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        Description { text: root.sans + " · Aa Bb Cc 0123456789"; font.pixelSize: 12 }
                                     }
                                 }
+                                GridLayout {
+                                    Layout.fillWidth: true; columns: pageScroll.width >= 440 ? 2 : 1; columnSpacing: 10; rowSpacing: 8
+                                    Repeater {
+                                        model: ["auto","Inter","Manrope","Montserrat","Poppins","DM Sans","Plus Jakarta Sans","Space Grotesk","Outfit","Sora","Figtree","Rubik","Noto Sans"]
+                                        delegate: Rectangle {
+                                            id: fontTile
+                                            required property string modelData
+                                            property bool available: modelData === "auto" || root.installedFonts.includes(modelData)
+                                            Layout.fillWidth: true; implicitHeight: 50; radius: 13
+                                            color: fontMouse.containsMouse && available ? root.track : root.cardColor
+                                            border.width: prefs.fontChoice === modelData ? 2 : 0; border.color: root.primary
+                                            RowLayout { anchors.fill: parent; anchors.margins: 10
+                                                MText { text: fontTile.modelData === "auto" ? "Automatic" : fontTile.modelData; font.family: fontTile.available && fontTile.modelData !== "auto" ? fontTile.modelData : root.sans; font.weight: Font.Medium; Layout.fillWidth: true; elide: Text.ElideRight; color: fontTile.available ? root.foreground : root.muted }
+                                                MText { text: !fontTile.available ? "Not installed" : prefs.fontChoice === fontTile.modelData ? "✓" : ""; font.pixelSize: 10; color: root.muted }
+                                            }
+                                            MouseArea { id: fontMouse; anchors.fill: parent; enabled: fontTile.available; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: prefs.fontChoice = fontTile.modelData }
+                                        }
+                                    }
+                                }
+                                Description { text: "Install the curated font pack with bash install.sh --ui-only --fetch-fonts from the repository, then restart aether." }
                                 SectionTitle { text: "Motion" }
                                 RowLayout { MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                                 RowLayout { MText { text: "Animation · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 300; to: 1400; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
@@ -678,24 +753,76 @@ ShellRoot {
                                         id: providerRow
                                         required property var modelData
                                         property var matches: root.allAccounts.filter(a => root.logo(a.provider) === modelData.id)
-                                        Layout.fillWidth: true; implicitHeight: providerContent.implicitHeight + 28; radius: 20; color: root.cardColor
+                                        property bool shown: !root.hiddenProviders.includes(modelData.id)
+                                        Layout.fillWidth: true; implicitHeight: providerContent.implicitHeight + 32; radius: 22; color: root.cardColor
                                         ColumnLayout {
-                                            id: providerContent; anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 14; spacing: 8
+                                            id: providerContent; anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 16; spacing: 12
                                             RowLayout { Layout.fillWidth: true; spacing: 12
                                                 ProviderIcon { Layout.preferredWidth: 38; Layout.preferredHeight: 38; name: providerRow.modelData.id; fallback: providerRow.modelData.name.slice(0,1) }
                                                 ColumnLayout { Layout.fillWidth: true; spacing: 3
                                                     MText { text: providerRow.modelData.name; font.weight: Font.DemiBold; Layout.fillWidth: true }
-                                                    Description { text: providerRow.modelData.id === "codex" ? providerRow.matches.length + " discovered accounts" : "Native quota adapter planned"; font.pixelSize: 11 }
+                                                    Description { text: providerRow.matches.length ? providerRow.matches.filter(a => !root.hiddenAccounts.includes(String(a.id))).length + " of " + providerRow.matches.length + " accounts selected" : providerRow.modelData.id === "codex" ? "No accounts discovered" : "Native quota adapter planned"; font.pixelSize: 11 }
                                                 }
                                                 MSwitch { checked: !root.hiddenProviders.includes(providerRow.modelData.id); onToggled: root.setHidden("hiddenProviders", providerRow.modelData.id, !checked) }
                                             }
+                                            MText {
+                                                visible: providerRow.matches.length > 0
+                                                text: "LINKED ACCOUNTS"; color: root.muted
+                                                font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.0
+                                                Layout.topMargin: 4
+                                            }
                                             Repeater {
                                                 model: providerRow.matches
-                                                delegate: RowLayout {
+                                                delegate: Rectangle {
+                                                    id: accountRow
                                                     required property var modelData
-                                                    Layout.fillWidth: true
-                                                    MText { text: modelData.name; Layout.fillWidth: true; elide: Text.ElideRight; color: root.muted }
-                                                    MSwitch { enabled: !root.hiddenProviders.includes(providerRow.modelData.id); checked: !root.hiddenAccounts.includes(String(modelData.id)); onToggled: root.setHidden("hiddenAccounts", String(modelData.id), !checked) }
+                                                    property bool shown: !root.hiddenAccounts.includes(String(modelData.id))
+                                                    property real session: root.remaining(root.windowFor(modelData,300))
+                                                    property real weekly: root.remaining(root.windowFor(modelData,10080))
+                                                    Layout.fillWidth: true; implicitHeight: accountDetails.implicitHeight + 24
+                                                    radius: 16; color: root.surface; border.width: 1; border.color: root.outline
+                                                    opacity: providerRow.shown ? 1 : 0.55
+                                                    ColumnLayout {
+                                                        id: accountDetails
+                                                        anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 12; spacing: 10
+                                                        RowLayout {
+                                                            Layout.fillWidth: true; spacing: 10
+                                                            Rectangle {
+                                                                Layout.preferredWidth: 36; Layout.preferredHeight: 36; radius: 12; color: root.buttonColor
+                                                                MText { anchors.centerIn: parent; text: String(accountRow.modelData.name || "Account").trim().slice(0,1).toUpperCase() || "A"; font.weight: Font.DemiBold; font.pixelSize: 16; color: root.onPrimaryContainer }
+                                                            }
+                                                            ColumnLayout {
+                                                                Layout.fillWidth: true; spacing: 3
+                                                                MText { text: accountRow.modelData.name || "Account"; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                                                                RowLayout {
+                                                                    spacing: 5
+                                                                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: accountRow.modelData.status === "ok" ? root.primary : accountRow.modelData.status === "stale" ? root.weeklyColor : root.danger }
+                                                                    MText { text: !accountRow.shown || !providerRow.shown ? "Hidden" : accountRow.modelData.status === "ok" ? "Available" : accountRow.modelData.status === "stale" ? "Stale cache" : "Unavailable"; font.pixelSize: 11; color: root.muted }
+                                                                }
+                                                            }
+                                                            MSwitch { enabled: providerRow.shown; checked: accountRow.shown; onToggled: root.setHidden("hiddenAccounts", String(accountRow.modelData.id), !checked) }
+                                                        }
+                                                        RowLayout {
+                                                            Layout.fillWidth: true; spacing: 16
+                                                            Repeater {
+                                                                model: [{label:"Session",value:accountRow.session,tint:root.sessionColor},{label:"Weekly",value:accountRow.weekly,tint:root.weeklyColor}]
+                                                                delegate: ColumnLayout {
+                                                                    id: miniQuota
+                                                                    required property var modelData
+                                                                    Layout.fillWidth: true; spacing: 5
+                                                                    RowLayout {
+                                                                        Layout.fillWidth: true
+                                                                        MText { text: miniQuota.modelData.label; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true }
+                                                                        MText { text: miniQuota.modelData.value < 0 ? "—" : Math.round(miniQuota.modelData.value) + "%"; font.family: root.monoFont; font.pixelSize: 11; color: miniQuota.modelData.tint }
+                                                                    }
+                                                                    Rectangle {
+                                                                        Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: root.track
+                                                                        Rectangle { width: parent.width * Math.max(0,miniQuota.modelData.value) / 100; height: parent.height; radius: 2; color: miniQuota.modelData.tint }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -800,7 +927,7 @@ ShellRoot {
                                 RowLayout { MText { text: "Dismiss delay · " + prefs.dismissDelay + " ms"; Layout.fillWidth: true } MSlider { from: 100; to: 1000; stepSize: 50; value: prefs.dismissDelay; onMoved: prefs.dismissDelay = Math.round(value) } }
                                 RowLayout { MText { text: "Cache refresh · " + prefs.cacheSeconds + " s"; Layout.fillWidth: true } MSlider { from: 2; to: 30; stepSize: 1; value: prefs.cacheSeconds; onMoved: prefs.cacheSeconds = Math.round(value) } }
                                 Description { text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
-                                Choice { label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24 } }
+                                Choice { label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24 } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "About"; Layout.fillWidth: true; spacing: 16

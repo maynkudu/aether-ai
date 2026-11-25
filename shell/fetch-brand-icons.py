@@ -17,7 +17,7 @@ PNG = b"\x89PNG\r\n\x1a\n"
 MAX_IMAGE = 5 * 1024 * 1024
 MAX_ARCHIVE = 64 * 1024 * 1024
 RAW = "https://raw.githubusercontent.com/"
-CODEX = RAW + "backnotprop/orchestrator/main/assets/providers/"
+BLOSSOM = RAW + "openai/openai-cookbook/4a85c3018d20ceef48bf7549450c567896501bf9/examples/voice_solutions/realtime_translation_guide/livekit-translation-demo/public/brand/"
 GROK_KITS = (
     "https://data.x.ai/logos/SpaceXAI_Grok_Assets.zip",
     "https://data.x.ai/logos/xAI_Grok_Assets.zip",
@@ -142,11 +142,11 @@ def grok(dest):
                 print("Unavailable: Grok", variant, "-", exc)
 
 def fetch(dest):
-    # Codex: original distributed application PNGs, retrieved from an attributed
-    # mirror; pin the exact Git blob contents, not a community-redrawn glyph.
-    separate(dest, "codex", {
-        "dark": (CODEX + "codex-icon-dark.png", "b40e14a14a999928c17a634a68debe1ac09708d3"),
-        "light": (CODEX + "codex-icon-light.png", "dc265ec106e34fb701aec6c8fd489451cb5dc521"),
+    # Use the approved transparent ChatGPT/OpenAI Blossom variants for
+    # identification of OpenAI's Codex provider, not aether's own branding.
+    separate(dest, "openai", {
+        "dark": (BLOSSOM + "chatgpt-blossom-white.svg", "6341b6fa91c82e4f6fdd9f26e0c2103c13913135"),
+        "light": (BLOSSOM + "chatgpt-blossom-black.svg", "7c119340c4fc1e6aa59628a2c7aa656077e29939"),
     })
     # First-party product sites and official source repositories.
     assets = [

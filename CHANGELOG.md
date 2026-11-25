@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Appearance and provider polish
+
+- Default Mono, Mono Light and five additional built-in/dynamic palettes; live theme switching, contrast-aware controls and reset to Mono.
+- Curated Google Fonts typography selector, live preview, optional user-local font installer with upstream OFL licenses.
+- Replace the square Codex application icon with the official transparent OpenAI Blossom (black/white).
+- Nested linked-account cards with individual visibility, health and session/weekly quota previews. Backend and analytics unchanged.
+
 ## v0.2.0 — Control centre
 
 - Sidebar-based settings, provider logos, persistent visibility filters, typography and hotspot controls, redesigned About page and MIT license.

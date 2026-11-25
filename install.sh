@@ -6,7 +6,7 @@ icon_args=()
 for arg in "$@"; do
   case "$arg" in
     --ui-only) ui_only=true ;;
-    --fetch-icons) icon_args+=("$arg") ;;
+    --fetch-icons|--fetch-fonts) icon_args+=("$arg") ;;
     *) printf 'Unknown argument: %s\n' "$arg" >&2; exit 2 ;;
   esac
 done

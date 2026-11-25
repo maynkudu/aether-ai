@@ -4,8 +4,20 @@ cd "$(dirname "$0")"
 p="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/aether"
 mkdir -p "$p/icons" "$p/brand-icons"
 args=()
-if [[ "${1:-}" == --fetch-icons ]]; then
-  args+=(--fetch)
+fetch_fonts=false
+for arg in "$@"; do
+  case "$arg" in
+    --fetch-icons) args+=(--fetch) ;;
+    --fetch-fonts) fetch_fonts=true ;;
+    *) printf 'Unknown UI installer option: %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
+if [[ "$fetch_fonts" == true ]]; then
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf 'python3 is required to download fonts.\n' >&2
+    exit 1
+  fi
+  python3 fetch-fonts.py
 fi
 if command -v python3 >/dev/null 2>&1; then
   python3 fetch-brand-icons.py "$p/brand-icons" "${args[@]}"

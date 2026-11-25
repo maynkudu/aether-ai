@@ -74,3 +74,9 @@ The merged baseline preserves the previous backend and UI; the user's local buil
 ## Control centre
 
 The centred settings window now has a sidebar, provider artwork, per-provider and per-account visibility, appearance and behaviour controls, and project links. Analytics draws real local quota snapshots as lines or bars across 24 hours, 7, 30 or 90 days. History starts with the new daemon; previous T3 token/cost history is not imported yet. Visibility does not change T3 configuration or stop polling. History is kept locally in XDG_STATE_HOME/aether/history (default ~/.local/state/aether/history) for about 92 days. Rebuild the backend and restart its user service for this release.
+
+### Appearance and typography
+
+Mono is the default colour scheme. Mono Light, Midnight, Lavender, Forest, Ember, Paper and dynamic Caelestia are available in Appearance. Provider groups have nested account status and quota rows. Codex uses the original OpenAI Blossom in black or white, not the old square app icon.
+
+Run `bash install.sh --ui-only --fetch-icons --fetch-fonts` to download brand assets and the curated OFL font pack. Fonts install in `$XDG_DATA_HOME/fonts/aether-ai` (default `~/.local/share/fonts/aether-ai`), with each upstream OFL license; no sudo needed. Restart the shell to see newly installed font families. Font and asset downloads are optional and do not occur at runtime. Missing assets/fonts are handled explicitly.
