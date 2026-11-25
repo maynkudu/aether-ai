@@ -142,7 +142,7 @@ aether-update apply development
 aether-update rollback
 ```
 
-See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engineering](docs/RELEASING.md). CI is configured to validate Linux and native desktop builds before drafting a versioned release for manual review.
+See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engineering](docs/RELEASING.md). CI automatically validates Linux and native desktop builds on version-tag pushes before drafting a release for manual review. Website checks also run on version tags. Both workflows can be started manually; ordinary pushes and pull requests do not trigger them.
 
 ## Architecture
 

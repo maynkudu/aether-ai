@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Release-only CI
+
+- Limit application and website Actions workflows to version-tag pushes and manual dispatch; retain mandatory native release build/test gates.
+- Fix invalid QML separators after per-item growth transforms.
+
 ### Responsive navigation, slow data growth
 
 - Separate interface timing (820 ms default) from quota/graph timing (1800 ms default), preserving slow linear ring sweeps without slowing navigation or dropdowns.

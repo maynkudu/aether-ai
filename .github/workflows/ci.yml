@@ -1,9 +1,8 @@
 name: CI and releases
 on:
+  # Ordinary commits and pull requests do not consume hosted runner time.
   push:
-    branches: [main]
     tags: ['v*']
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
