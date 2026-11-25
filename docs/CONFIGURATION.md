@@ -12,7 +12,7 @@ Caelestia requires a running standard `qs -c caelestia` instance and a usable sc
 
 Native Windows and macOS support the seven built-in palette IDs and migrate the previous light/dark preference. Caelestia remains Linux-only.
 
-On macOS, Appearance also enables optional registered global shortcuts (Cmd+Option+Shift+A/R) and a primary-display corner reveal. Closing the window minimizes if menu-bar initialization succeeds; Quit stops the process. No login agent is installed.
+On macOS, Appearance also enables optional registered global shortcuts (Cmd+Option+Shift+A/R) and a primary-display corner dwell drawer while minimized; pointer departure or Escape dismisses the drawer. Cmd+1–5 switches tabs. Closing the window minimizes if menu-bar initialization succeeds; Quit stops the process. No login agent is installed.
 
 The macOS updater is opt-in, with Stable (published non-prereleases) and Preview (including alpha/beta/RC) channels. It checks every six hours and installs a verified staged update on Quit when enabled. Source checkouts are not replaced. Install in a writable Applications directory first; no sudo is used. The release ZIP is not notarized.
 

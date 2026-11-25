@@ -55,7 +55,7 @@ Linux supports Liquid, Smooth and Reduced motion, with opaque theme-aware surfac
 | Frontend | Quickshell / Qt Quick | Rust / egui | Rust / egui |
 | Status | Primary development target | Experimental | Experimental |
 | Codex & history | Implemented | Implemented; testing pending | Implemented; testing pending |
-| Hover drawer, global hotkeys | Implemented | Planned | Experimental corner reveal and global shortcuts |
+| Hover drawer, global hotkeys | Implemented | Planned | Experimental compact drawer and global shortcuts |
 | Theme support | Eight schemes | Seven built-in schemes | Seven built-in schemes |
 | Application updates | Opt-in updater | Planned | Experimental opt-in release updater |
 
@@ -175,7 +175,7 @@ See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-
 
 - [ ] Verify native Windows and macOS builds on real devices.
 - [ ] Expand quota adapters beyond Codex; validate managed T3 credentials.
-- [ ] Bring tray/menu-bar, global hotkeys and motion parity to native ports.
+- [ ] Validate native macOS menu bar, drawer, hotkeys and updater on physical devices; bring tray and motion parity to Windows.
 - [ ] Add signed distribution, dependency auditing and reproducible release builds.
 - [ ] Validate scroll interaction and reduced-motion behaviour.
 

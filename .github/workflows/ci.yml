@@ -23,6 +23,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |
+          python3 scripts/test_release_check.py
           python3 scripts/release_check.py
           if [[ "$REF_TYPE" == tag ]]; then
             python3 scripts/release_check.py --tag "$TAG"

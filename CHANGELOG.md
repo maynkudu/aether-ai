@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Turn the macOS corner reveal into a compact always-on-top quota drawer while minimized, with delayed pointer-leave dismissal, full-window restoration, Escape and Cmd+1–5 navigation.
+- Bound the native poller's result storage to its latest snapshot.
+
 - Add experimental opt-in macOS release updater with stable/preview channels, official architecture-specific assets, SHA256 and bundle checks, staging and installation on Quit.
 - Validate release tags and lockfile before expensive matrix builds; embed release identity in native binaries.
 
