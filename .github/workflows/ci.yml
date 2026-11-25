@@ -70,13 +70,25 @@ jobs:
       - name: Package tested Linux build
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
-          mkdir -p /tmp/aether-src
-          git archive --format=tar --prefix=aether-ai/ HEAD | tar -xf - -C /tmp/aether-src
-          cp Cargo.lock /tmp/aether-src/aether-ai/
-          tar -czf dist/aether-source.tar.gz -C /tmp/aether-src aether-ai
-          tar -czf dist/aether-arch-linux-x86_64.tar.gz -C target/release aether -C "$GITHUB_WORKSPACE" shell/shell.qml scripts/update.py systemd LICENSE README.md CHANGELOG.md Cargo.lock
-          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          # Checkout is owned by the host runner; trust only this known
+          # workspace for the archive command, not every repository.
+          git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" archive --format=tar --prefix=aether-ai/ HEAD > "$stage/source.tar"
+          tar -xf "$stage/source.tar" -C "$stage"
+          cp Cargo.lock "$stage/aether-ai/"
+          tar -czf dist/aether-source.tar.gz -C "$stage" aether-ai
+          tar -czf dist/aether-arch-linux-x86_64.tar.gz -C "$GITHUB_WORKSPACE/target/release" aether -C "$GITHUB_WORKSPACE" shell/shell.qml scripts/update.py systemd LICENSE README.md CHANGELOG.md Cargo.lock
+          # Check the actual archives before uploading them.
+          tar -tzf dist/aether-source.tar.gz > "$stage/source-files.txt"
+          tar -tzf dist/aether-arch-linux-x86_64.tar.gz > "$stage/binary-files.txt"
+          grep -Fx 'aether-ai/Cargo.lock' "$stage/source-files.txt"
+          grep -Fx 'aether-ai/shell/shell.qml' "$stage/source-files.txt"
+          grep -Fx 'aether' "$stage/binary-files.txt"
+          grep -Fx 'shell/shell.qml' "$stage/binary-files.txt"
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: aether-linux
