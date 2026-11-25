@@ -78,6 +78,8 @@ jobs:
         run: |
           git fetch origin main:refs/remotes/origin/main
           git merge-base --is-ancestor HEAD origin/main
+          # Stable releases must carry their dependency lock in source control.
+          git ls-files --error-unmatch Cargo.lock
           python3 scripts/release_check.py --tag "$TAG" --notes release-notes.md
       - uses: actions/download-artifact@v4
         with:
