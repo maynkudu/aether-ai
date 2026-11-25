@@ -898,6 +898,8 @@ ShellRoot {
         font.pixelSize: 13
         leftPadding: 14; rightPadding: 40
         hoverEnabled: true
+        editable: false
+        focusPolicy: Qt.TabFocus
         displayText: currentIndex < 0 ? "Select…" : labelFor(currentText)
         contentItem: MText {
             text: liquidSelect.displayText
@@ -929,6 +931,7 @@ ShellRoot {
             property bool over: hovered || liquidSelect.highlightedIndex === index
             property var scheme: liquidSelect.themeGrid ? root.schemeChoices[index] : null
             hoverEnabled: true
+            focusPolicy: Qt.NoFocus
             width: Math.max(1,liquidGrid.cellWidth-6)
             height: liquidGrid.cellHeight-6
             padding: 10
@@ -963,6 +966,8 @@ ShellRoot {
         }
         popup: Popup {
             id: liquidPopup
+            // Keep popups inside the existing layer-shell surface; no native popup window.
+            popupType: Popup.Item
             property bool above: false
             property int columns: liquidSelect.themeGrid && width >= 340 ? 2 : 1
             property real cell: liquidSelect.themeGrid ? 72 : 44
@@ -1005,8 +1010,8 @@ ShellRoot {
                         width: dropdownContent.width; height: dropdownContent.height
                         clip: true
                         opacity: liquidPopup.shownContent
-                        enabled: liquidPopup.shownContent > 0.7
-                        model: liquidPopup.visible ? liquidSelect.delegateModel : null
+                        // Do not toggle focus eligibility during the animation.
+                        model: liquidSelect.delegateModel
                         currentIndex: liquidSelect.highlightedIndex
                         cellWidth: width/liquidPopup.columns
                         cellHeight: liquidPopup.cell
@@ -1316,6 +1321,7 @@ ShellRoot {
                                         id: glassConfigText
                                         Layout.fillWidth: true; Layout.preferredHeight: Math.max(100,contentHeight+24)
                                         text: root.liquidConfig; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
+                                        focusPolicy: Qt.NoFocus; activeFocusOnPress: false
                                         color: root.foreground; selectionColor: root.primary; selectedTextColor: root.onAccent
                                         font.family: root.monoFont; font.pixelSize: 11; padding: 12
                                         background: Rectangle { radius: 16; color: root.cardColor; border.width: 1; border.color: root.outline }
@@ -1664,6 +1670,7 @@ ShellRoot {
                                     id: bindingText
                                     Layout.fillWidth: true; Layout.preferredHeight: Math.max(120, Math.min(240, contentHeight + 24))
                                     readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
+                                    focusPolicy: Qt.NoFocus; activeFocusOnPress: false
                                     text: root.hyprlandBindings
                                     color: root.foreground; selectionColor: root.primary; selectedTextColor: root.onAccent
                                     font.family: root.monoFont; font.pixelSize: 11; padding: 12
