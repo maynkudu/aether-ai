@@ -765,7 +765,7 @@ ShellRoot {
                                     Item {
                                         id: ringFace
                                         // Never let the layout independently stretch the two axes.
-                                        property real diameter: Math.max(1, Math.min(132, Math.floor(ringCard.width - 24)))
+                                        property real diameter: Math.max(1, Math.min(root.accounts.length === 1 ? 144 : 132, Math.floor(ringCard.width - 24)))
                                         property real strokeSize: diameter * 0.05
                                         property real outerRadius: diameter * 0.40
                                         property real innerRadius: diameter * (37 / 120)
@@ -805,26 +805,57 @@ ShellRoot {
                                                 PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 360 * Math.min(100, Math.max(0, ringCard.weekLeft)) / 100 * ringFace.drawProgress }
                                             }
                                         }
+                                        // Fit both lines inside the inner circle, including 100%,
+                                        // wide user-selected fonts and narrow multi-account cards.
                                         Column {
-                                            anchors.centerIn: parent; spacing: 3
-                                            MText { anchors.horizontalCenter: parent.horizontalCenter; text: ringCard.sessionLeft < 0 ? "—" : Math.round(ringCard.sessionLeft) + "%"; font.weight: Font.DemiBold; font.pixelSize: Math.max(10, ringFace.diameter * 0.25); color: root.foreground }
-                                            MText { anchors.horizontalCenter: parent.horizontalCenter; text: "session"; font.pixelSize: Math.max(8, ringFace.diameter * 0.085); color: root.muted }
+                                            anchors.centerIn: parent
+                                            width: Math.floor(ringFace.diameter * 0.43)
+                                            spacing: Math.max(1, Math.round(ringFace.diameter * 0.012))
+                                            MText {
+                                                width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.19))
+                                                horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                                text: ringCard.sessionLeft < 0 ? "—" : Math.round(ringCard.sessionLeft) + "%"
+                                                font.weight: Font.DemiBold
+                                                font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.17))
+                                                minimumPixelSize: 4; fontSizeMode: Text.Fit
+                                                wrapMode: Text.NoWrap; color: root.foreground
+                                            }
+                                            MText {
+                                                width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.105))
+                                                horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                                text: "session"; font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.078))
+                                                minimumPixelSize: 4; fontSizeMode: Text.Fit; wrapMode: Text.NoWrap; color: root.muted
+                                            }
                                         }
                                     }
 
-                                    RowLayout {
-                                        Layout.fillWidth: true; spacing: 4
-                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.sessionColor; font.family: root.monoFont; font.pixelSize: 13; text: ringCard.sessionLeft < 0 ? "—" : Math.round(ringCard.sessionLeft) + "%" }
-                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.weeklyColor; font.family: root.monoFont; font.pixelSize: 13; text: ringCard.weekLeft < 0 ? "—" : Math.round(ringCard.weekLeft) + "%" }
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true; spacing: 4
-                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.muted; font.pixelSize: 10; text: "5h" }
-                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.muted; font.pixelSize: 10; text: "Week" }
+                                    // Align labels and values like the website preview; keep
+                                    // reset text subordinate rather than splitting it into a third row.
+                                    Repeater {
+                                        model: [
+                                            { label: "Session", value: ringCard.sessionLeft, quota: ringCard.session, tint: root.sessionColor },
+                                            { label: "Weekly", value: ringCard.weekLeft, quota: ringCard.week, tint: root.weeklyColor }
+                                        ]
+                                        delegate: RowLayout {
+                                            required property var modelData
+                                            Layout.fillWidth: true; spacing: 6
+                                            ColumnLayout {
+                                                Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                                MText { Layout.fillWidth: true; text: modelData.label; color: root.muted; font.pixelSize: 11; elide: Text.ElideRight }
+                                                MText {
+                                                    visible: modelData.quota !== null
+                                                    Layout.fillWidth: true; font.pixelSize: 10; color: root.muted; elide: Text.ElideRight
+                                                    text: root.resetText(modelData.quota ? modelData.quota.reset : null)
+                                                }
+                                            }
+                                            MText {
+                                                text: modelData.value < 0 ? "—" : Math.round(modelData.value) + "%"
+                                                color: modelData.tint; font.family: root.monoFont; font.pixelSize: 12
+                                                font.weight: Font.DemiBold
+                                            }
+                                        }
                                     }
                                     MText { visible: ringCard.modelData.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; text: ringCard.modelData.status }
-                                    MText { visible: ringCard.session !== null; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; color: root.muted; font.pixelSize: 10; text: "5h · " + root.resetText(ringCard.session ? ringCard.session.reset : null).replace("Resets in ", "") }
-                                    MText { visible: ringCard.week !== null; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; color: root.muted; font.pixelSize: 10; text: "W · " + root.resetText(ringCard.week ? ringCard.week.reset : null).replace("Resets in ", "") }
                                 }
                             }
                         }
@@ -1306,7 +1337,7 @@ ShellRoot {
                                 RowLayout { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
                                     Layout.fillWidth: true
                                     MText { text: "Layout"; Layout.fillWidth: true }
-                                    LiquidSelect { Layout.preferredWidth: 180; model: ["Grid","Rings"]; currentIndex: prefs.viewMode === "rings" ? 1 : 0; onActivated: prefs.viewMode = index === 1 ? "rings" : "grid" }
+                                    LiquidSelect { Layout.preferredWidth: 180; model: ["Grid","Rings"]; currentIndex: prefs.viewMode === "rings" ? 1 : 0; onActivated: function(index) { prefs.viewMode = index === 1 ? "rings" : "grid" }}
                                 }
                                 SectionTitle { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
                                     text: "Colour scheme" }
@@ -1330,7 +1361,7 @@ ShellRoot {
                                         unavailableReason: function(i) { return root.schemeChoices[i] && root.schemeChoices[i].id === "caelestia" && !root.caelestiaAvailable ? root.caelestiaReason : "" }
                                         model: root.schemeChoices.map(x => x.name)
                                         currentIndex: Math.max(0,root.schemeChoices.findIndex(x => x.id === prefs.colorScheme))
-                                        onActivated: { if (unavailableReason(index)) { currentIndex = Math.max(0,root.schemeChoices.findIndex(x => x.id === prefs.colorScheme)); return } prefs.colorScheme = root.schemeChoices[index].id }
+                                        onActivated: function(index) { if (unavailableReason(index)) { currentIndex = Math.max(0,root.schemeChoices.findIndex(x => x.id === prefs.colorScheme)); return } prefs.colorScheme = root.schemeChoices[index].id }
                                     }
                                 }
                                 Description { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
@@ -1358,7 +1389,7 @@ ShellRoot {
                                     model: ["auto","Inter","Manrope","Montserrat","Poppins","DM Sans","Plus Jakarta Sans","Space Grotesk","Outfit","Sora","Figtree","Rubik","Noto Sans"].filter(n => n === "auto" || root.installedFonts.includes(n))
                                     labelFor: function(n) { return n === "auto" ? "Automatic" : n }
                                     currentIndex: Math.max(0,model.indexOf(prefs.fontChoice))
-                                    onActivated: prefs.fontChoice = model[index]
+                                    onActivated: function(index) { prefs.fontChoice = model[index] }
                                 }
                                 Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     text: "Install the curated font pack with bash install.sh --ui-only --fetch-fonts from the repository, then restart aether." }
@@ -1377,7 +1408,7 @@ ShellRoot {
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Motion style"; Layout.fillWidth: true }
-                                    LiquidSelect { Layout.preferredWidth: 180; model: ["Liquid","Smooth","Reduced"]; currentIndex: Math.max(0,["liquid","smooth","reduced"].indexOf(prefs.motionStyle)); onActivated: prefs.motionStyle = ["liquid","smooth","reduced"][index] }
+                                    LiquidSelect { Layout.preferredWidth: 180; model: ["Liquid","Smooth","Reduced"]; currentIndex: Math.max(0,["liquid","smooth","reduced"].indexOf(prefs.motionStyle)); onActivated: function(index) { prefs.motionStyle = ["liquid","smooth","reduced"][index] }}
                                 }
                                 RowLayout { MText { text: "Animate Wisp"; Layout.fillWidth: true } MSwitch { checked: prefs.wispMotion; enabled: prefs.motionStyle !== "reduced"; onToggled: prefs.wispMotion = checked } }
                                 Description { text: "Wisp is aether.ai’s mascot. Reduced motion keeps Wisp still." }
@@ -1643,7 +1674,7 @@ ShellRoot {
                                                     palette.button: root.track; palette.buttonText: root.foreground
                                                     palette.window: root.cardColor; palette.windowText: root.foreground; palette.text: root.foreground; palette.base: root.cardColor
                                                     palette.highlight: root.primary; palette.highlightedText: root.onAccent
-                                                    onActivated: root.setBinding(actionCard.modelData, "mods", model[index])
+                                                    onActivated: function(index) { root.setBinding(actionCard.modelData, "mods", model[index]) }
                                                 }
                                                 LiquidSelect {
                                                     id: keyCombo
@@ -1656,7 +1687,7 @@ ShellRoot {
                                                     palette.button: root.track; palette.buttonText: root.foreground
                                                     palette.window: root.cardColor; palette.windowText: root.foreground; palette.text: root.foreground; palette.base: root.cardColor
                                                     palette.highlight: root.primary; palette.highlightedText: root.onAccent
-                                                    onActivated: root.setBinding(actionCard.modelData, "key", model[index])
+                                                    onActivated: function(index) { root.setBinding(actionCard.modelData, "key", model[index]) }
                                                 }
                                             }
                                         }
@@ -1668,7 +1699,7 @@ ShellRoot {
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Hyprland configuration"; Layout.fillWidth: true; font.weight: Font.Medium }
-                                    LiquidSelect { Layout.preferredWidth: 160; model: ["Legacy .conf","Lua"]; currentIndex: prefs.bindSyntax === "lua" ? 1 : 0; onActivated: prefs.bindSyntax = index === 1 ? "lua" : "conf" }
+                                    LiquidSelect { Layout.preferredWidth: 160; model: ["Legacy .conf","Lua"]; currentIndex: prefs.bindSyntax === "lua" ? 1 : 0; onActivated: function(index) { prefs.bindSyntax = index === 1 ? "lua" : "conf" }}
                                 }
                                 TextArea { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
                                     
@@ -1751,7 +1782,7 @@ ShellRoot {
                                 RowLayout { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
                                     
                                     Layout.fillWidth: true
-                                    LiquidSelect { Layout.fillWidth: true; model: ["Stable releases","Development"]; currentIndex: prefs.updateChannel === "development" ? 1 : 0; onActivated: { prefs.updateChannel = index === 1 ? "development" : "stable"; prefs.sync(); root.runUpdater("status") } }
+                                    LiquidSelect { Layout.fillWidth: true; model: ["Stable releases","Development"]; currentIndex: prefs.updateChannel === "development" ? 1 : 0; onActivated: function(index) { prefs.updateChannel = index === 1 ? "development" : "stable"; prefs.sync(); root.runUpdater("status") } }
                                 }
                                 Description { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
                                     text: prefs.updateChannel === "stable" ? "Only published, non-prerelease GitHub releases. Until a release is published, there is no stable update." : "Tracks main commits. Development builds may introduce regressions; choose Stable if you prefer fewer changes." }
