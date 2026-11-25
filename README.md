@@ -80,3 +80,30 @@ The centred settings window now has a sidebar, provider artwork, per-provider an
 Mono is the default colour scheme. Mono Light, Midnight, Lavender, Forest, Ember, Paper and dynamic Caelestia are available in Appearance. Provider groups have nested account status and quota rows. Codex uses the original OpenAI Blossom in black or white, not the old square app icon.
 
 Run `bash install.sh --ui-only --fetch-icons --fetch-fonts` to download brand assets and the curated OFL font pack. Fonts install in `$XDG_DATA_HOME/fonts/aether-ai` (default `~/.local/share/fonts/aether-ai`), with each upstream OFL license; no sudo needed. Restart the shell to see newly installed font families. Font and asset downloads are optional and do not occur at runtime. Missing assets/fonts are handled explicitly.
+
+
+### Scroll fades and shortcuts
+
+Appearance includes toggleable scroll-edge fades and a 12–48 px fade depth. Fades follow the viewport's scroll distance, disappear at its ends, and stay off for non-overflowing content.
+
+The Shortcuts tab offers editable Hyprland modifiers/keys, duplicate detection within aether's generated bindings, and copyable legacy configuration or Lua. The defaults are Super+U (drawer), Super+Shift+U (control centre), and Super+Alt+U (analytics). Cache refresh and dismiss are optional actions, disabled in the generated defaults. Add the generated bindings to your personal Hyprland config, replacing older aether bindings, then reload. Aether never edits compositor configuration; preference changes do not remove previously installed compositor binds.
+
+Legacy Hyprland:
+```ini
+bind = SUPER, U, exec, qs -c aether ipc call dashboard toggle
+bind = SUPER SHIFT, U, exec, qs -c aether ipc call dashboard settings
+bind = SUPER ALT, U, exec, qs -c aether ipc call dashboard analytics
+```
+
+Lua Hyprland:
+```lua
+hl.bind("SUPER + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard toggle"))
+hl.bind("SUPER + SHIFT + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard settings"))
+hl.bind("SUPER + ALT + U", hl.dsp.exec_cmd("qs -c aether ipc call dashboard analytics"))
+```
+
+IPC also supports `dashboard refresh`, `dashboard dismiss`, and `dashboard shortcuts`. Refresh reads the existing cache/history, not provider APIs. Within the focused control centre, Ctrl+1 through Ctrl+7 navigate the sidebar; Ctrl+R refreshes the view and Escape dismisses it. These local shortcuts may be disabled in Settings.
+
+### Platforms
+
+The current implementation targets Linux on Wayland, primarily Hyprland. The QML frontend uses Quickshell's Wayland layer-shell APIs, and the service installer uses systemd. The Rust backend also uses Unix file permissions and Linux-oriented discovery paths. macOS and Windows are not supported by this release; a native port requires a platform-specific window/hotkey implementation, service and filesystem adapters. The portable quota and analytics logic can be shared rather than rewriting it. No Caelestia requirement.

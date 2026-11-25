@@ -29,6 +29,76 @@ ShellRoot {
     }
     property string version: "0.2.0"
     property string settingsTab: "Overview"
+    property var settingsPages: ["Overview","Appearance","Providers","Analytics","Behaviour","Shortcuts","About"]
+    property var shortcutActions: [
+        {id:"toggle",label:"Toggle dashboard",note:"Open or close the quota drawer",mods:"SUPER",key:"U"},
+        {id:"settings",label:"Toggle control centre",note:"Open or close settings",mods:"SUPER SHIFT",key:"U"},
+        {id:"analytics",label:"Open analytics",note:"Jump directly to quota history",mods:"SUPER ALT",key:"U"},
+        {id:"refresh",label:"Refresh local view",note:"Read the existing cache, not the provider API",mods:"Disabled",key:"R"},
+        {id:"dismiss",label:"Dismiss aether",note:"Close both surfaces",mods:"Disabled",key:"Escape"}
+    ]
+    property var shortcutModifiers: ["Disabled","SUPER","SUPER SHIFT","SUPER CTRL","SUPER ALT","SUPER CTRL SHIFT","SUPER CTRL ALT","SUPER SHIFT ALT","CTRL ALT","CTRL SHIFT","ALT SHIFT"]
+    property var shortcutKeys: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split("").concat(["F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","Escape","space"])
+    property var savedBindings: {
+        try {
+            let v = JSON.parse(prefs.shortcutBindings)
+            return v && typeof v === "object" && !Array.isArray(v) ? v : ({})
+        } catch(e) { return ({}) }
+    }
+    function bindingFor(action) {
+        let saved = savedBindings[action.id] || {}
+        return {mods: shortcutModifiers.includes(saved.mods) ? saved.mods : action.mods, key: shortcutKeys.includes(saved.key) ? saved.key : action.key}
+    }
+    function setBinding(action, field, value) {
+        let next = Object.assign({}, savedBindings)
+        let binding = bindingFor(action)
+        binding[field] = value
+        next[action.id] = binding
+        prefs.shortcutBindings = JSON.stringify(next)
+    }
+    property bool duplicateBindings: {
+        let seen = new Set()
+        for (let action of shortcutActions) {
+            let b = bindingFor(action)
+            if (b.mods === "Disabled") continue
+            let name = b.mods + "+" + b.key
+            if (seen.has(name)) return true
+            seen.add(name)
+        }
+        return false
+    }
+    property string hyprlandBindings: {
+        let lines = []
+        if (prefs.globalShortcutsEnabled) {
+            for (let action of shortcutActions) {
+                let b = bindingFor(action)
+                if (b.mods === "Disabled") continue
+                let command = "qs -c aether ipc call dashboard " + action.id
+                if (prefs.bindSyntax === "lua") lines.push('hl.bind("' + b.mods.split(" ").join(" + ") + ' + ' + b.key + '", hl.dsp.exec_cmd("' + command + '"))')
+                else lines.push("bind = " + b.mods + ", " + b.key + ", exec, " + command)
+            }
+        }
+        return lines.join("\n")
+    }
+    function selectPage(name) {
+        if (!settingsPages.includes(name)) return
+        settingsTab = name
+        pageScroll.cancelFlick()
+        pageScroll.contentY = pageScroll.originY
+        // Reset again after the new page layout has had a chance to settle.
+        Qt.callLater(function() { if (root.settingsTab === name) pageScroll.contentY = pageScroll.originY })
+        if (name === "Analytics") refreshHistory()
+    }
+    function openSettings(name) {
+        hide()
+        settingsOpen = true
+        if (name) selectPage(name)
+    }
+    function refreshView() {
+        if (!reader.running) reader.running = true
+        if (settingsOpen) refreshHistory()
+    }
+    function dismissAll() { settingsOpen = false; hide() }
     property string analyticsPeriod: "7"
     property string analyticsMetric: "session"
     property var history: []
@@ -132,7 +202,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono" }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf" }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -253,7 +323,48 @@ ShellRoot {
     }
     Timer { interval: prefs.cacheSeconds * 1000; running: root.opened; repeat: true; triggeredOnStart: true; onTriggered: { root.now = Date.now(); if (!reader.running) reader.running = true } }
     Timer { interval: 1000; running: root.opened; repeat: true; onTriggered: root.now = Date.now() }
-    IpcHandler { target: "dashboard"; function settings(): void { root.settingsOpen = !root.settingsOpen; root.hide() } function toggle(): void { if (root.settingsOpen) root.settingsOpen = false; else if (root.opened) root.hide(); else { root.pinned = true; root.show() } } }
+    IpcHandler {
+        target: "dashboard"
+        function settings(): void { if (root.settingsOpen) root.dismissAll(); else root.openSettings("") }
+        function toggle(): void { if (root.settingsOpen) root.dismissAll(); else if (root.opened) root.hide(); else { root.pinned = true; root.show() } }
+        function analytics(): void { root.openSettings("Analytics") }
+        function refresh(): void { root.refreshView() }
+        function dismiss(): void { root.dismissAll() }
+        function shortcuts(): void { root.openSettings("Shortcuts") }
+    }
+    // Visual-only gradients, attached to the viewport rather than the moving
+    // content item. Opacity tracks distance from each end, including short lists.
+    component ScrollFade: Item {
+        id: edge
+        required property Flickable viewport
+        property color shade: root.surface
+        property real depth: Math.min(prefs.fadeDepth, height / 3)
+        property real range: Math.max(0, viewport.contentHeight - viewport.height)
+        property real distance: Math.max(0, Math.min(range, viewport.contentY - viewport.originY))
+        property bool overflowing: prefs.edgeFades && range > 0.5 && depth > 0
+        enabled: false
+        z: 20
+        Rectangle {
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+            height: edge.depth
+            opacity: edge.overflowing ? root.smooth(edge.distance / Math.max(1, edge.depth)) : 0
+            visible: opacity > 0
+            gradient: Gradient {
+                GradientStop { position: 0; color: edge.shade }
+                GradientStop { position: 1; color: Qt.rgba(edge.shade.r, edge.shade.g, edge.shade.b, 0) }
+            }
+        }
+        Rectangle {
+            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+            height: edge.depth
+            opacity: edge.overflowing ? root.smooth((edge.range - edge.distance) / Math.max(1, edge.depth)) : 0
+            visible: opacity > 0
+            gradient: Gradient {
+                GradientStop { position: 0; color: Qt.rgba(edge.shade.r, edge.shade.g, edge.shade.b, 0) }
+                GradientStop { position: 1; color: edge.shade }
+            }
+        }
+    }
     // One stable overlay. The mask is the union of the tiny corner and
     // the final panel footprint; no per-frame Wayland input-mask updates.
     PanelWindow {
@@ -535,6 +646,7 @@ ShellRoot {
                     }
                 }
             }
+            ScrollFade { anchors.fill: scroll; viewport: scroll }
         }
     }
     component Choice: Rectangle {
@@ -594,6 +706,16 @@ ShellRoot {
             opacity: root.settingsOpen ? 1 : 0; scale: root.settingsOpen ? 1 : 0.96
             Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.InOutCubic } }
             Behavior on scale { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
+            // Local shortcuts are active only when the settings window has focus.
+            Shortcut { sequence: "Escape"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.dismissAll() }
+            Shortcut { sequence: "Ctrl+1"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Overview") }
+            Shortcut { sequence: "Ctrl+2"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Appearance") }
+            Shortcut { sequence: "Ctrl+3"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Providers") }
+            Shortcut { sequence: "Ctrl+4"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Analytics") }
+            Shortcut { sequence: "Ctrl+5"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Behaviour") }
+            Shortcut { sequence: "Ctrl+6"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Shortcuts") }
+            Shortcut { sequence: "Ctrl+7"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("About") }
+            Shortcut { sequence: "Ctrl+R"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.refreshView() }
             RowLayout {
                 anchors.fill: parent; anchors.margins: 12; spacing: 0
                 Rectangle {
@@ -606,14 +728,14 @@ ShellRoot {
                         Description { text: "Control centre"; font.pixelSize: 11 }
                         Item { Layout.preferredHeight: 12 }
                         Repeater {
-                            model: ["Overview","Appearance","Providers","Analytics","Behaviour","About"]
+                            model: root.settingsPages
                             delegate: Rectangle {
                                 required property string modelData
                                 Layout.fillWidth: true; implicitHeight: 44; radius: 22
                                 color: root.settingsTab === modelData ? root.primary : navMouse.containsMouse ? root.track : "transparent"
                                 Behavior on color { ColorAnimation { duration: 150 } }
                                 MText { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData; color: root.settingsTab === parent.modelData ? root.onAccent : root.foreground; font.weight: Font.Medium; font.pixelSize: 13 }
-                                MouseArea { id: navMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.settingsTab = parent.modelData; pageScroll.contentY = 0; if (root.settingsTab === "Analytics") root.refreshHistory() } }
+                                MouseArea { id: navMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.selectPage(parent.modelData) }
                             }
                         }
                         Item { Layout.fillHeight: true }
@@ -628,9 +750,11 @@ ShellRoot {
                         MText { text: root.settingsTab; font.pixelSize: 31; font.weight: Font.DemiBold; font.letterSpacing: -1; Layout.fillWidth: true }
                         Choice { label: "Done"; onChosen: root.settingsOpen = false }
                     }
-                    Flickable {
-                        id: pageScroll
+                    Item {
                         Layout.fillWidth: true; Layout.fillHeight: true
+                        Flickable {
+                        id: pageScroll
+                        anchors.fill: parent
                         clip: true; contentWidth: width; contentHeight: page.implicitHeight
                         boundsBehavior: Flickable.StopAtBounds
                         ColumnLayout {
@@ -740,6 +864,9 @@ ShellRoot {
                                     }
                                 }
                                 Description { text: "Install the curated font pack with bash install.sh --ui-only --fetch-fonts from the repository, then restart aether." }
+                                SectionTitle { text: "Scrolling" }
+                                RowLayout { MText { text: "Scroll edge fades"; Layout.fillWidth: true } MSwitch { checked: prefs.edgeFades; onToggled: prefs.edgeFades = checked } }
+                                RowLayout { MText { text: "Fade depth · " + prefs.fadeDepth + " px"; Layout.fillWidth: true } MSlider { enabled: prefs.edgeFades; from: 12; to: 48; stepSize: 2; value: prefs.fadeDepth; onMoved: prefs.fadeDepth = Math.round(value) } }
                                 SectionTitle { text: "Motion" }
                                 RowLayout { MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                                 RowLayout { MText { text: "Animation · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 300; to: 1400; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
@@ -927,7 +1054,114 @@ ShellRoot {
                                 RowLayout { MText { text: "Dismiss delay · " + prefs.dismissDelay + " ms"; Layout.fillWidth: true } MSlider { from: 100; to: 1000; stepSize: 50; value: prefs.dismissDelay; onMoved: prefs.dismissDelay = Math.round(value) } }
                                 RowLayout { MText { text: "Cache refresh · " + prefs.cacheSeconds + " s"; Layout.fillWidth: true } MSlider { from: 2; to: 30; stepSize: 1; value: prefs.cacheSeconds; onMoved: prefs.cacheSeconds = Math.round(value) } }
                                 Description { text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
-                                Choice { label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24 } }
+                                Choice { label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf" } }
+                            }
+                            ColumnLayout {
+                                visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14
+                                SectionTitle { text: "Desktop shortcuts" }
+                                Description { text: "Open aether from anywhere in Hyprland. Choose a modifier and key, then copy the generated configuration into your own keybind file. Existing desktop bindings are never changed automatically." }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    MText { text: "Generate desktop bindings"; Layout.fillWidth: true }
+                                    MSwitch { checked: prefs.globalShortcutsEnabled; onToggled: prefs.globalShortcutsEnabled = checked }
+                                }
+                                Repeater {
+                                    model: root.shortcutActions
+                                    delegate: Rectangle {
+                                        id: actionCard
+                                        required property var modelData
+                                        property var binding: root.bindingFor(modelData)
+                                        Layout.fillWidth: true; implicitHeight: bindingContent.implicitHeight + 24
+                                        radius: 18; color: root.cardColor
+                                        opacity: prefs.globalShortcutsEnabled ? 1 : 0.55
+                                        ColumnLayout {
+                                            id: bindingContent
+                                            anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 12
+                                            spacing: 8
+                                            MText { text: actionCard.modelData.label; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                                            Description { text: actionCard.modelData.note; font.pixelSize: 11 }
+                                            RowLayout {
+                                                Layout.fillWidth: true; spacing: 8
+                                                ComboBox {
+                                                    id: modifierCombo
+                                                    Layout.fillWidth: true
+                                                    model: root.shortcutModifiers
+                                                    currentIndex: root.shortcutModifiers.indexOf(actionCard.binding.mods)
+                                                    enabled: prefs.globalShortcutsEnabled
+                                                    font.family: root.sans
+                                                    palette.button: root.track; palette.buttonText: root.foreground
+                                                    palette.window: root.cardColor; palette.windowText: root.foreground; palette.text: root.foreground; palette.base: root.cardColor
+                                                    palette.highlight: root.primary; palette.highlightedText: root.onAccent
+                                                    onActivated: root.setBinding(actionCard.modelData, "mods", currentText)
+                                                }
+                                                ComboBox {
+                                                    id: keyCombo
+                                                    Layout.preferredWidth: 104
+                                                    model: root.shortcutKeys
+                                                    currentIndex: root.shortcutKeys.indexOf(actionCard.binding.key)
+                                                    enabled: prefs.globalShortcutsEnabled && actionCard.binding.mods !== "Disabled"
+                                                    font.family: root.monoFont
+                                                    palette.button: root.track; palette.buttonText: root.foreground
+                                                    palette.window: root.cardColor; palette.windowText: root.foreground; palette.text: root.foreground; palette.base: root.cardColor
+                                                    palette.highlight: root.primary; palette.highlightedText: root.onAccent
+                                                    onActivated: root.setBinding(actionCard.modelData, "key", currentText)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Description { visible: prefs.globalShortcutsEnabled && root.duplicateBindings; color: root.danger; text: "Two aether actions use the same shortcut. Choose different combinations before copying." }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    MText { text: "Hyprland configuration"; Layout.fillWidth: true; font.weight: Font.Medium }
+                                    Choice { label: ".conf"; selected: prefs.bindSyntax !== "lua"; onChosen: prefs.bindSyntax = "conf" }
+                                    Choice { label: "Lua"; selected: prefs.bindSyntax === "lua"; onChosen: prefs.bindSyntax = "lua" }
+                                }
+                                TextArea {
+                                    id: bindingText
+                                    Layout.fillWidth: true; Layout.preferredHeight: Math.max(120, Math.min(240, contentHeight + 24))
+                                    readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
+                                    text: root.hyprlandBindings
+                                    color: root.foreground; selectionColor: root.primary; selectedTextColor: root.onAccent
+                                    font.family: root.monoFont; font.pixelSize: 11; padding: 12
+                                    background: Rectangle { radius: 16; color: root.cardColor; border.width: 1; border.color: root.outline }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Choice { label: "Reset bindings"; onChosen: prefs.shortcutBindings = "{}" }
+                                    Item { Layout.fillWidth: true }
+                                    Choice {
+                                        label: "Copy configuration"
+                                        enabled: prefs.globalShortcutsEnabled && !root.duplicateBindings && root.hyprlandBindings.length > 0
+                                        opacity: enabled ? 1 : 0.45
+                                        onChosen: { bindingText.selectAll(); bindingText.copy() }
+                                    }
+                                }
+                                Description { text: "Replace any previously installed aether binds in your Hyprland configuration, check for conflicts with existing desktop shortcuts, then reload Hyprland. Changing or disabling a binding here only updates the generated text; remove the previous compositor binding yourself." }
+                                SectionTitle { text: "Inside the control centre" }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    MText { text: "Enable in-app shortcuts"; Layout.fillWidth: true }
+                                    MSwitch { checked: prefs.localShortcutsEnabled; onToggled: prefs.localShortcutsEnabled = checked }
+                                }
+                                Repeater {
+                                    model: root.settingsPages.concat(["Refresh local view","Close control centre"])
+                                    delegate: Rectangle {
+                                        id: localRow
+                                        required property string modelData
+                                        required property int index
+                                        Layout.fillWidth: true; implicitHeight: 42; radius: 12; color: root.cardColor
+                                        RowLayout {
+                                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
+                                            MText { text: localRow.modelData; Layout.fillWidth: true }
+                                            Rectangle {
+                                                implicitWidth: keyLabel.implicitWidth + 16; implicitHeight: 26; radius: 7; color: root.track
+                                                MText { id: keyLabel; anchors.centerIn: parent; text: localRow.index < root.settingsPages.length ? "Ctrl+" + (localRow.index + 1) : localRow.index === root.settingsPages.length ? "Ctrl+R" : "Esc"; font.family: root.monoFont; font.pixelSize: 11 }
+                                            }
+                                        }
+                                    }
+                                }
+                                Description { text: "In-app shortcuts work when the control centre has keyboard focus. The hover drawer deliberately does not steal focus." }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "About"; Layout.fillWidth: true; spacing: 16
@@ -960,6 +1194,8 @@ ShellRoot {
                                 Description { text: "Local-first. No telemetry. No inference proxy. No changes to T3 Code or Caelestia." }
                             }
                         }
+                        }
+                        ScrollFade { anchors.fill: pageScroll; viewport: pageScroll }
                     }
                 }
             }

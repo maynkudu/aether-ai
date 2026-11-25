@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Scroll polish and shortcuts
+
+- Added viewport-relative, theme-aware top/bottom scroll fades for the drawer and all settings tabs; configurable depth and enable toggle.
+- Added a Shortcuts tab with persistent desktop binding choices, duplicate detection, and copyable Hyprland legacy/Lua configuration. No compositor files changed automatically.
+- Added focused-window Ctrl+1–7 navigation, Ctrl+R cache refresh, Escape dismiss, and IPC actions for analytics, refresh, dismiss and shortcuts.
+- Documented Linux/Wayland scope and future native-platform port requirements. Backend unchanged.
+
 ## Unreleased — Appearance and provider polish
 
 - Default Mono, Mono Light and five additional built-in/dynamic palettes; live theme switching, contrast-aware controls and reset to Mono.
