@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.0 — Control centre
+
+- Sidebar-based settings, provider logos, persistent visibility filters, typography and hotspot controls, redesigned About page and MIT license.
+- Real local quota history, 24h/7d/30d/90d line and bar views. T3 token/cost analytics are not connected yet.
+
 ## UI v7 — Brand artwork and circular rings
 
 - Replaced provider-icon library lookup with an opt-in, documented first-party asset importer; Codex original app icons use a verified attributed mirror. No provider logo is borrowed from another brand. Missing artwork uses initials.

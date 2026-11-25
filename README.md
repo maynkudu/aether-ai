@@ -6,7 +6,7 @@ A local-first AI quota monitor for Linux. Rust backend, independent Quickshell/Q
 
 ## Current state
 
-Experimental Rust backend v0.1.0 + UI v7. Codex is the only implemented quota provider; Claude, Grok, OpenCode and Pi are planned. The UI does not modify Caelestia or T3 Code. Native managed T3 authentication is not implemented. No license has been selected yet.
+Experimental v0.2.0. Codex is the only implemented quota provider; Claude, Grok, OpenCode and Pi are planned. The UI does not modify Caelestia or T3 Code. Native managed T3 authentication is not implemented. Licensed under MIT; third-party brand assets remain subject to their own terms.
 
 ## Install
 
@@ -70,3 +70,7 @@ The backend launches native Codex app-server probes and caches primary/secondary
 - Add automated Rust and QML validation, notifications and optional usage history.
 
 The merged baseline preserves the previous backend and UI; the user's local build was reported working, but this repository bundle has not been compiled or tested with Quickshell in the packaging environment.
+
+## Control centre
+
+The centred settings window now has a sidebar, provider artwork, per-provider and per-account visibility, appearance and behaviour controls, and project links. Analytics draws real local quota snapshots as lines or bars across 24 hours, 7, 30 or 90 days. History starts with the new daemon; previous T3 token/cost history is not imported yet. Visibility does not change T3 configuration or stop polling. History is kept locally in XDG_STATE_HOME/aether/history (default ~/.local/state/aether/history) for about 92 days. Rebuild the backend and restart its user service for this release.
