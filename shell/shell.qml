@@ -108,7 +108,7 @@ ShellRoot {
     function selectPage(name) {
         if (!settingsPages.includes(name)) return
         if (activeDropdown) activeDropdown.close()
-        if (settingsTab !== name && prefs.motionStyle !== "reduced") pageSpring.jump(0)
+        if (settingsTab !== name) { pageSpring.jump(0); pageDataClock.jump(0) }
         settingsTab = name
         if (name === "Updates") runUpdater("status")
         pageScroll.cancelFlick()
@@ -170,8 +170,9 @@ ShellRoot {
         } }
     }
     function refreshHistory() { if (!historyReader.running) historyReader.running = true }
-    onAnalyticsPeriodChanged: refreshHistory()
-    onSettingsOpenChanged: if (settingsOpen) { if (prefs.motionStyle !== "reduced") pageSpring.jump(0); if (!reader.running) reader.running = true; refreshHistory(); if (settingsTab === "Updates") runUpdater("status") } else if (activeDropdown) activeDropdown.close()
+    onAnalyticsPeriodChanged: { refreshHistory(); if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0) }
+    onAnalyticsMetricChanged: if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0)
+    onSettingsOpenChanged: if (settingsOpen) { pageSpring.jump(0); pageDataClock.jump(0); if (!reader.running) reader.running = true; refreshHistory(); if (settingsTab === "Updates") runUpdater("status") } else if (activeDropdown) activeDropdown.close()
     Timer { interval: 30000; repeat: true; running: root.settingsOpen; onTriggered: root.refreshHistory() }
     function series() {
         let minutes = analyticsMetric === "weekly" ? 10080 : 300
@@ -185,10 +186,11 @@ ShellRoot {
             if (prefs.motionMs === 820) prefs.motionMs = 1100
             prefs.motionRevision = 2
         }
-        // Adopt the calmer default once, without resetting any other preferences.
-        if (prefs.motionRevision < 3) {
-            if (prefs.motionMs < 1600) prefs.motionMs = 1800
-            prefs.motionRevision = 3
+        // Keep revision-3 timing for data, not navigation.
+        if (prefs.motionRevision < 4) {
+            if (prefs.motionRevision === 3) prefs.dataMotionMs = Math.max(1200,Math.min(2800,prefs.motionMs))
+            prefs.motionMs = 820
+            prefs.motionRevision = 4
         }
         syncRingAccounts()
         if (!reader.running) reader.running = true
@@ -255,12 +257,13 @@ ShellRoot {
     property real animatedHeight: naturalHeight
     property real naturalHeight: Math.max(148, Math.min(drawer.height - 12, content.implicitHeight + 44))
     Behavior on animatedHeight { NumberAnimation { duration: root.motionDuration(0.55); easing.type: Easing.InOutSine } }
-    // A single wall-clock timing scale for the entire interface. Qt's
-    // animation driver advances these values once per rendered frame. No
-    // spring thresholds, overshoot, or cascaded easing on quota sweeps.
+    // Independent interface and data clocks, advanced by Qt's animation driver.
     function motionDuration(factor) {
         if (prefs.motionStyle === "reduced") return 0
-        return Math.round(Math.max(1400, prefs.motionMs) * factor * (prefs.motionStyle === "smooth" ? 1.12 : 1))
+        return Math.round(Math.max(500, prefs.motionMs) * factor * (prefs.motionStyle === "smooth" ? 1.12 : 1))
+    }
+    function dataDuration(factor) {
+        return prefs.motionStyle === "reduced" ? 0 : Math.round(Math.max(1200,prefs.dataMotionMs)*factor)
     }
     component MotionValue: Item {
         id: motion
@@ -268,6 +271,7 @@ ShellRoot {
         property real targetValue: 0
         property real value: 0
         property real factor: 1
+        property bool dataMotion: false
         property bool proportional: false
         property int curve: Easing.InOutSine
         property bool instant: prefs.motionStyle === "reduced"
@@ -282,7 +286,7 @@ ShellRoot {
             // Reverse from the current position, rather than resetting it.
             tween.from = value
             tween.to = targetValue
-            tween.duration = Math.max(1, Math.round(root.motionDuration(factor) * (proportional ? Math.min(1, Math.abs(targetValue-value)) : 1)))
+            tween.duration = Math.max(1, Math.round((dataMotion ? root.dataDuration(factor) : root.motionDuration(factor)) * (proportional ? Math.min(1, Math.abs(targetValue-value)) : 1)))
             tween.start()
         }
         function jump(next) {
@@ -305,16 +309,17 @@ ShellRoot {
     function unit(v) { return Math.max(0, Math.min(1, v)) }
     function smooth(t) { t = unit(t); return t*t*(3-2*t) }
     function quintic(t) { t = unit(t); return t*t*t*(t*(t*6-15)+10) }
-    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true }
+    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: 0.9 }
     property real reveal: unit(drawerSpring.value)
     MotionValue { id: drawerContentSpring; targetValue: root.opened ? 1 : 0; factor: 1.10; proportional: true; curve: Easing.Linear }
-    MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true }
+    MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: 0.9 }
     property real settingsReveal: unit(settingsSpring.value)
     MotionValue { id: settingsContentSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
-    MotionValue { id: pageSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.15; proportional: true; curve: Easing.Linear }
+    MotionValue { id: pageSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
+    MotionValue { id: pageDataClock; targetValue: root.settingsOpen ? 1 : 0; factor: 1.40; dataMotion: true; proportional: true; curve: Easing.Linear }
     // Ring fill has its own constant-rate clock, independent of the panel
     // reveal and opacity. Both arcs start together and settle at their data.
-    MotionValue { id: ringClock; targetValue: root.opened && root.rings ? 1 : 0; factor: 1.40; proportional: true; curve: Easing.Linear }
+    MotionValue { id: ringClock; targetValue: root.opened ? 1 : 0; factor: 1.40; dataMotion: true; proportional: true; curve: Easing.Linear }
     function ringProgress(i) {
         if (prefs.motionStyle === "reduced") return 1
         let delay = 0.20 + (prefs.staggerEnabled ? Math.min(i,8)*0.015 : 0)
@@ -323,8 +328,19 @@ ShellRoot {
     function heightProgress(p) { return p }
     function pageStage(i) {
         if (prefs.motionStyle === "reduced") return 1
-        let delay = 0.18 + (prefs.staggerEnabled ? Math.min(i,12)*0.025 : 0)
-        return smooth((unit(pageSpring.value)-delay)/0.40)
+        let delay = 0.035 + (prefs.staggerEnabled ? 0.49*(1-Math.exp(-Math.max(0,i)/12)) : 0)
+        return smooth((unit(pageSpring.value)-delay)/0.44)
+    }
+    function pageDataProgress(i) {
+        if (prefs.motionStyle === "reduced") return 1
+        let delay = 0.20 + (prefs.staggerEnabled ? Math.min(i,8)*0.015 : 0)
+        return unit((pageDataClock.value-delay)/0.68)
+    }
+    component ItemGrowth: Scale {
+        property real stage: 1
+        origin.x: 0; origin.y: 0
+        xScale: 0.76 + 0.24*stage
+        yScale: 0.76 + 0.24*stage
     }
     property real finalPanelX: 6 + (drawer.width-12-panelWidth)*ax
     property real finalPanelY: 6 + (drawer.height-12-panelHeight)*ay
@@ -340,6 +356,7 @@ ShellRoot {
     property real panelWidth: Math.max(1, drawer.width - 12)
     property real panelHeight: Math.min(drawer.height - 12, animatedHeight)
     property bool rings: prefs.viewMode === "rings"
+    onRingsChanged: if (opened) ringClock.jump(0)
     property color sessionColor: tone("primary", lightTheme ? "#222222" : "#e8e8e8")
     property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
     function stagger(i) {
@@ -355,7 +372,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1800; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dataMotionMs: 1800; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -467,7 +484,7 @@ ShellRoot {
         let d = Math.floor(seconds / 86400), h = Math.floor(seconds / 3600) % 24, m = Math.floor(seconds / 60) % 60
         return "Resets in " + (d ? d + "d " : "") + (h ? h + "h " : "") + m + "m"
     }
-    function show() { closeTimer.stop(); opened = true }
+    function show() { closeTimer.stop(); if (!opened) { opened = true; ringClock.jump(0) } }
     function hide() { pinned = false; opened = false; closeTimer.stop() }
     Timer { id: closeTimer; interval: prefs.dismissDelay; onTriggered: if (!root.settingsOpen && !root.pinned && !drawerHover.hovered) root.hide() }
     Process {
@@ -753,7 +770,7 @@ ShellRoot {
                                         }
                                         Rectangle {
                                             Layout.fillWidth: true; implicitHeight: 8; radius: 4; color: root.track
-                                            Rectangle { width: parent.width * quota.remaining / 100; height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator; Behavior on width { NumberAnimation { duration: root.motionDuration(0.90); easing.type: Easing.Linear } } }
+                                            Rectangle { property real displayedQuota: quota.remaining; Behavior on displayedQuota { NumberAnimation { duration: root.dataDuration(0.90); easing.type: Easing.Linear } } width: parent.width * displayedQuota / 100 * root.ringProgress(accountCard.index); height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator }
                                         }
                                         MText { text: quota.known ? root.resetText(quota.modelData.reset) : "Quota unavailable"; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                                     }
@@ -779,8 +796,8 @@ ShellRoot {
                                 property real weekLeft: root.remaining(week)
                                 property real sessionSweep: Math.max(0, sessionLeft)
                                 property real weekSweep: Math.max(0, weekLeft)
-                                Behavior on sessionSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.motionDuration(0.90); easing.type: Easing.Linear } }
-                                Behavior on weekSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.motionDuration(0.90); easing.type: Easing.Linear } }
+                                Behavior on sessionSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.90); easing.type: Easing.Linear } }
+                                Behavior on weekSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.90); easing.type: Easing.Linear } }
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 100
                                 Layout.preferredWidth: 144
@@ -1149,10 +1166,10 @@ ShellRoot {
                 }
             }
             enter: Transition {
-                NumberAnimation { target: liquidPopup; property: "growth"; to: 1; duration: root.motionDuration(0.85); easing.type: Easing.InOutSine }
+                NumberAnimation { target: liquidPopup; property: "growth"; to: 1; duration: root.motionDuration(0.72); easing.type: Easing.InOutSine }
             }
             exit: Transition {
-                NumberAnimation { target: liquidPopup; property: "growth"; to: 0; duration: root.motionDuration(0.85); easing.type: Easing.InOutSine }
+                NumberAnimation { target: liquidPopup; property: "growth"; to: 0; duration: root.motionDuration(0.56); easing.type: Easing.InOutSine }
             }
         }
     }
@@ -1276,11 +1293,11 @@ ShellRoot {
                         Item {
                             id: pageHeading
                             Layout.fillWidth: true; implicitHeight: headingLabel.implicitHeight
-                            Item {
-                                anchors.left: parent.left; anchors.top: parent.top
-                                height: parent.height; width: parent.width*root.quintic(root.unit(pageSpring.value)/0.55)
-                                clip: true
-                                MText { id: headingLabel; text: root.settingsTab; width: pageHeading.width; font.pixelSize: 31; font.weight: Font.DemiBold; font.letterSpacing: -1; elide: Text.ElideRight }
+                            MText {
+                                id: headingLabel; text: root.settingsTab; width: pageHeading.width
+                                font.pixelSize: 31; font.weight: Font.DemiBold; font.letterSpacing: -1; elide: Text.ElideRight
+                                opacity: root.pageStage(0)
+                                transform: ItemGrowth { stage: root.pageStage(0) }
                             }
                         }
                         Choice { label: "Done"; onChosen: root.settingsOpen = false }
@@ -1288,14 +1305,9 @@ ShellRoot {
                     Item {
                         id: pageViewport
                         Layout.fillWidth: true; Layout.fillHeight: true
-                        Item {
-                            id: pageRevealClip
-                            anchors.left: parent.left; anchors.top: parent.top
-                            width: parent.width*root.quintic((root.unit(pageSpring.value)-0.15)/0.85)
-                            height: parent.height; clip: true
                         Flickable {
                         id: pageScroll
-                        width: pageViewport.width; height: pageViewport.height
+                        anchors.fill: pageViewport
                         clip: true; contentWidth: width; contentHeight: page.implicitHeight
                         boundsBehavior: Flickable.StopAtBounds
                         flickableDirection: Flickable.VerticalFlick
@@ -1305,30 +1317,28 @@ ShellRoot {
                         ColumnLayout {
                             id: page
                             width: pageScroll.width; spacing: 16
-                            opacity: root.pageStage(0)
                             ColumnLayout {
                                 visible: root.settingsTab === "Overview"; Layout.fillWidth: true; spacing: 14
-                                Description { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     text: "Your AI resources, in one place. All data stays on this device." }
-                                GridLayout { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
+                                GridLayout {
                                     
                                     columns: 2; Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
-                                    StatCard { label: "Visible accounts"; value: String(root.accounts.length) }
-                                    StatCard { label: "Healthy accounts"; value: String(root.accounts.filter(a => a.status === "ok").length) }
-                                    StatCard { label: "Providers"; value: String(new Set(root.accounts.map(a => a.provider)).size) }
-                                    StatCard { label: "Quota history"; value: String(root.history.length) }
+                                    StatCard { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }; label: "Visible accounts"; value: String(root.accounts.length) }
+                                    StatCard { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }; label: "Healthy accounts"; value: String(root.accounts.filter(a => a.status === "ok").length) }
+                                    StatCard { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }; label: "Providers"; value: String(new Set(root.accounts.map(a => a.provider)).size) }
+                                    StatCard { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }; label: "Quota history"; value: String(root.history.length) }
                                 }
-                                SectionTitle { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
+                                SectionTitle { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     text: "Current limits" }
-                                Description { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
+                                Description { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
                                     text: root.status }
                                 Repeater {
                                     model: root.accounts
                                     delegate: Rectangle {
                                         required property var modelData
                                         required property int index
-                                        opacity: root.pageStage(index+5)
-                                        transform: Translate { x: -18*(1-root.pageStage(index+5)); y: -5*(1-root.pageStage(index+5)) }
+                                        opacity: root.pageStage(index+8); transform: ItemGrowth { stage: root.pageStage(index+8) }
                                         id: overviewAccount
                                         Layout.fillWidth: true; implicitHeight: overviewDetails.implicitHeight+28; radius: 18; color: root.cardColor
                                         ColumnLayout {
@@ -1358,7 +1368,7 @@ ShellRoot {
                                                         }
                                                         Rectangle {
                                                             Layout.fillWidth: true; implicitHeight: 5; radius: 3; color: root.track
-                                                            Rectangle { width: parent.width*Math.max(0,overviewQuota.modelData.value)/100*root.pageStage(overviewAccount.index+7+overviewQuota.index); height: parent.height; radius: 3; color: overviewQuota.modelData.tint }
+                                                            Rectangle { width: parent.width*Math.max(0,overviewQuota.modelData.value)/100*root.pageDataProgress(overviewAccount.index+overviewQuota.index); height: parent.height; radius: 3; color: overviewQuota.modelData.tint }
                                                         }
                                                     }
                                                 }
@@ -1366,23 +1376,23 @@ ShellRoot {
                                         }
                                     }
                                 }
-                                Description { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
+                                Description { opacity: root.pageStage(11); transform: ItemGrowth { stage: root.pageStage(11) }
                                     visible: root.accounts.length === 0; text: "No visible accounts. Check provider preferences or run aether refresh." }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Appearance"; Layout.fillWidth: true; spacing: 14
-                                SectionTitle { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                SectionTitle { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     text: "Dashboard" }
-                                RowLayout { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
+                                RowLayout { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
                                     Layout.fillWidth: true
                                     MText { text: "Layout"; Layout.fillWidth: true }
                                     LiquidSelect { Layout.preferredWidth: 180; model: ["Grid","Rings"]; currentIndex: prefs.viewMode === "rings" ? 1 : 0; onActivated: function(index) { prefs.viewMode = index === 1 ? "rings" : "grid" }}
                                 }
-                                SectionTitle { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
+                                SectionTitle { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     text: "Colour scheme" }
-                                Description { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
+                                Description { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     text: "Choose a built-in palette or follow Caelestia. Mono is the default." }
-                                RowLayout { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
+                                RowLayout { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }
                                     
                                     Layout.fillWidth: true; spacing: 12
                                     Rectangle {
@@ -1403,17 +1413,17 @@ ShellRoot {
                                         onActivated: function(index) { if (unavailableReason(index)) { currentIndex = Math.max(0,root.schemeChoices.findIndex(x => x.id === prefs.colorScheme)); return } prefs.colorScheme = root.schemeChoices[index].id }
                                     }
                                 }
-                                Description { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
+                                Description { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     visible: !root.caelestiaAvailable; text: prefs.colorScheme === "caelestia" ? "Caelestia unavailable · using Mono. " + root.caelestiaReason : "Caelestia unavailable · requires a running shell and palette." }
-                                RowLayout { opacity: root.pageStage(7); transform: Translate { x: -18*(1-root.pageStage(7)); y: -5*(1-root.pageStage(7)) }
+                                RowLayout { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
                                     MText { text: "Drawer width · " + prefs.layoutWidth + " px"; Layout.fillWidth: true } MSlider { from: 360; to: 560; stepSize: 10; value: prefs.layoutWidth; onMoved: prefs.layoutWidth = Math.round(value) } }
-                                RowLayout { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
+                                RowLayout { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     MText { text: "Card rounding · " + prefs.cardRadius + " px"; Layout.fillWidth: true } MSlider { from: 8; to: 32; stepSize: 2; value: prefs.cardRadius; onMoved: prefs.cardRadius = Math.round(value) } }
-                                SectionTitle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                SectionTitle { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
                                     text: "Typography" }
-                                Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                Description { opacity: root.pageStage(10); transform: ItemGrowth { stage: root.pageStage(10) }
                                     text: "Choose the UI typeface. The dropdown lists installed families and the preview updates immediately." }
-                                Rectangle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                Rectangle { opacity: root.pageStage(11); transform: ItemGrowth { stage: root.pageStage(11) }
                                     
                                     Layout.fillWidth: true; implicitHeight: 94; radius: 20; color: root.cardColor
                                     ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 4
@@ -1421,7 +1431,7 @@ ShellRoot {
                                         Description { text: root.sans + " · Aa Bb Cc 0123456789"; font.pixelSize: 12 }
                                     }
                                 }
-                                LiquidSelect { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                LiquidSelect { opacity: root.pageStage(12); transform: ItemGrowth { stage: root.pageStage(12) }
                                     
                                     id: fontSelector
                                     Layout.fillWidth: true; fontPreview: true
@@ -1430,35 +1440,36 @@ ShellRoot {
                                     currentIndex: Math.max(0,model.indexOf(prefs.fontChoice))
                                     onActivated: function(index) { prefs.fontChoice = model[index] }
                                 }
-                                Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                Description { opacity: root.pageStage(13); transform: ItemGrowth { stage: root.pageStage(13) }
                                     text: "Install the curated font pack with bash install.sh --ui-only --fetch-fonts from the repository, then restart aether." }
-                                SectionTitle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                SectionTitle { opacity: root.pageStage(14); transform: ItemGrowth { stage: root.pageStage(14) }
                                     text: "Scrolling" }
-                                RowLayout { MText { text: "Trackpad speed · " + prefs.trackpadSpeed.toFixed(1) + "×"; Layout.fillWidth: true } MSlider { from: 0.8; to: 3.0; stepSize: 0.1; value: prefs.trackpadSpeed; onMoved: prefs.trackpadSpeed = Math.round(value*10)/10 } }
-                                RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                RowLayout { opacity: root.pageStage(15); transform: ItemGrowth { stage: root.pageStage(15) }; MText { text: "Trackpad speed · " + prefs.trackpadSpeed.toFixed(1) + "×"; Layout.fillWidth: true } MSlider { from: 0.8; to: 3.0; stepSize: 0.1; value: prefs.trackpadSpeed; onMoved: prefs.trackpadSpeed = Math.round(value*10)/10 } }
+                                RowLayout { opacity: root.pageStage(16); transform: ItemGrowth { stage: root.pageStage(16) }
                                     MText { text: "Scroll edge fades"; Layout.fillWidth: true } MSwitch { checked: prefs.edgeFades; onToggled: prefs.edgeFades = checked } }
-                                RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                RowLayout { opacity: root.pageStage(17); transform: ItemGrowth { stage: root.pageStage(17) }
                                     MText { text: "Fade depth · " + prefs.fadeDepth + " px"; Layout.fillWidth: true } MSlider { enabled: prefs.edgeFades; from: 12; to: 48; stepSize: 2; value: prefs.fadeDepth; onMoved: prefs.fadeDepth = Math.round(value) } }
-                                SectionTitle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                SectionTitle { opacity: root.pageStage(18); transform: ItemGrowth { stage: root.pageStage(18) }
                                     text: "Motion" }
-                                Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
-                                    text: "Liquid uses slow, interruptible transitions and capsule-shaped surfaces. Smooth is slightly slower. Ring sweeps run at a constant rate. Reduced disables interface motion." }
-                                RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                Description { opacity: root.pageStage(19); transform: ItemGrowth { stage: root.pageStage(19) }
+                                    text: "Liquid uses responsive, interruptible transitions with capsule-shaped surfaces. Smooth is slightly slower. Data fills have independent timing; Reduced disables both." }
+                                RowLayout { opacity: root.pageStage(20); transform: ItemGrowth { stage: root.pageStage(20) }
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Motion style"; Layout.fillWidth: true }
                                     LiquidSelect { Layout.preferredWidth: 180; model: ["Liquid","Smooth","Reduced"]; currentIndex: Math.max(0,["liquid","smooth","reduced"].indexOf(prefs.motionStyle)); onActivated: function(index) { prefs.motionStyle = ["liquid","smooth","reduced"][index] }}
                                 }
-                                RowLayout { MText { text: "Animate Wisp"; Layout.fillWidth: true } MSwitch { checked: prefs.wispMotion; enabled: prefs.motionStyle !== "reduced"; onToggled: prefs.wispMotion = checked } }
-                                Description { text: "Wisp is aether.ai’s mascot. Reduced motion keeps Wisp still." }
-                                RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
+                                RowLayout { opacity: root.pageStage(21); transform: ItemGrowth { stage: root.pageStage(21) }; MText { text: "Animate Wisp"; Layout.fillWidth: true } MSwitch { checked: prefs.wispMotion; enabled: prefs.motionStyle !== "reduced"; onToggled: prefs.wispMotion = checked } }
+                                Description { opacity: root.pageStage(22); transform: ItemGrowth { stage: root.pageStage(22) }; text: "Wisp is aether.ai’s mascot. Reduced motion keeps Wisp still." }
+                                RowLayout { opacity: root.pageStage(23); transform: ItemGrowth { stage: root.pageStage(23) }
                                     MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
-                                RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
-                                    MText { text: "Animation · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 1400; to: 2800; stepSize: 100; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
+                                RowLayout { opacity: root.pageStage(24); transform: ItemGrowth { stage: root.pageStage(24) }
+                                    MText { text: "Interface motion · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 500; to: 1200; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
+                                RowLayout { opacity: root.pageStage(25); transform: ItemGrowth { stage: root.pageStage(25) }; MText { text: "Data motion · " + prefs.dataMotionMs + " ms"; Layout.fillWidth: true } MSlider { from: 1200; to: 2800; stepSize: 100; value: prefs.dataMotionMs; onMoved: prefs.dataMotionMs = Math.round(value) } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Providers"; Layout.fillWidth: true; spacing: 12
-                                Description { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     text: "Choose which providers and accounts appear in aether. These switches control visibility only; they do not disable accounts in T3 or stop backend polling." }
                                 Repeater {
                                     model: root.providerGroups
@@ -1470,8 +1481,7 @@ ShellRoot {
                                         property bool shown: !root.hiddenProviders.includes(modelData.id)
                                         property bool groupHeader: !!modelData.header
                                         Layout.fillWidth: true; implicitHeight: groupHeader ? groupLabel.implicitHeight+14 : providerContent.implicitHeight + 32; radius: 22; color: groupHeader ? "transparent" : root.cardColor
-                                        opacity: root.pageStage(index+2)
-                                        transform: Translate { x: -16*(1-providerRow.opacity); y: -4*(1-providerRow.opacity) }
+                                        opacity: root.pageStage(index+2); transform: ItemGrowth { stage: root.pageStage(index+2) }
                                         ColumnLayout {
                                             id: groupLabel; visible: providerRow.groupHeader; anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; spacing: 4
                                             SectionTitle { text: providerRow.groupHeader ? providerRow.modelData.name : "" }
@@ -1497,13 +1507,15 @@ ShellRoot {
                                                 model: providerRow.matches
                                                 delegate: Rectangle {
                                                     id: accountRow
+                                                    required property int index
                                                     required property var modelData
                                                     property bool shown: !root.hiddenAccounts.includes(String(modelData.id))
                                                     property real session: root.remaining(root.windowFor(modelData,300))
                                                     property real weekly: root.remaining(root.windowFor(modelData,10080))
                                                     Layout.fillWidth: true; implicitHeight: accountDetails.implicitHeight + 24
                                                     radius: 16; color: root.surface; border.width: 1; border.color: root.outline
-                                                    opacity: providerRow.shown ? 1 : 0.55
+                                                    opacity: (providerRow.shown ? 1 : 0.55)*root.pageStage(providerRow.index+3+index)
+                                                    transform: ItemGrowth { stage: root.pageStage(providerRow.index+3+index) }
                                                     ColumnLayout {
                                                         id: accountDetails
                                                         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 12; spacing: 10
@@ -1539,7 +1551,7 @@ ShellRoot {
                                                                     }
                                                                     Rectangle {
                                                                         Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: root.track
-                                                                        Rectangle { width: parent.width * Math.max(0,miniQuota.modelData.value) / 100 * root.pageStage(6); height: parent.height; radius: 2; color: miniQuota.modelData.tint }
+                                                                        Rectangle { width: parent.width * Math.max(0,miniQuota.modelData.value) / 100 * root.pageDataProgress(0); height: parent.height; radius: 2; color: miniQuota.modelData.tint }
                                                                     }
                                                                 }
                                                             }
@@ -1553,31 +1565,55 @@ ShellRoot {
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Analytics"; Layout.fillWidth: true; spacing: 14
-                                Description { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     text: "Recorded subscription quota, not token consumption or actual billing. History starts after the new backend is installed." }
-                                Flow { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
+                                Flow {
                                     Layout.fillWidth: true; spacing: 8
                                     Repeater { model: [{v:"1",n:"24h"},{v:"7",n:"7 days"},{v:"30",n:"30 days"},{v:"90",n:"90 days"}]
-                                        delegate: Choice { required property var modelData; label: modelData.n; selected: root.analyticsPeriod === modelData.v; onChosen: root.analyticsPeriod = modelData.v }
+                                        delegate: Choice { required property var modelData; required property int index; opacity: root.pageStage(2+index); transform: ItemGrowth { stage: root.pageStage(2+index) }; label: modelData.n; selected: root.analyticsPeriod === modelData.v; onChosen: root.analyticsPeriod = modelData.v }
                                     }
                                 }
-                                RowLayout { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
+                                RowLayout { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     Layout.fillWidth: true
                                     Choice { label: "Session"; selected: root.analyticsMetric === "session"; onChosen: root.analyticsMetric = "session" }
                                     Choice { label: "Weekly"; selected: root.analyticsMetric === "weekly"; onChosen: root.analyticsMetric = "weekly" }
                                     Item { Layout.fillWidth: true }
-                                    Choice { label: "Line"; selected: prefs.chartMode === "line"; onChosen: prefs.chartMode = "line" }
-                                    Choice { label: "Bars"; selected: prefs.chartMode === "bars"; onChosen: prefs.chartMode = "bars" }
+                                    Choice { label: "Line"; selected: prefs.chartMode === "line"; onChosen: { if (prefs.chartMode !== "line") { prefs.chartMode = "line"; pageDataClock.jump(0) } } }
+                                    Choice { label: "Bars"; selected: prefs.chartMode === "bars"; onChosen: { if (prefs.chartMode !== "bars") { prefs.chartMode = "bars"; pageDataClock.jump(0) } } }
                                 }
-                                Rectangle { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
+                                Rectangle { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     
                                     id: analyticsGraph
                                     Layout.fillWidth: true; implicitHeight: 280; radius: 22; color: root.cardColor
-                                    Item {
-                                        x: 18; y: 18; width: Math.max(0,analyticsGraph.width-36)*root.pageStage(6); height: Math.max(1,analyticsGraph.height-36); clip: true
                                     Canvas {
+                                        id: plotAxes
+                                        x: 18; y: 18; width: Math.max(1,analyticsGraph.width-36); height: Math.max(1,analyticsGraph.height-36)
+                                        property color gridColor: root.track
+                                        property color labelColor: root.muted
+                                        property string period: root.analyticsPeriod
+                                        onGridColorChanged: requestPaint()
+                                        onLabelColorChanged: requestPaint()
+                                        onPeriodChanged: requestPaint()
+                                        onWidthChanged: requestPaint()
+                                        onHeightChanged: requestPaint()
+                                        onPaint: {
+                                            let c=getContext("2d"); c.reset()
+                                            let left=38, top=12, w=Math.max(1,width-left-8), h=Math.max(1,height-top-30)
+                                            c.font="11px sans-serif"; c.fillStyle=labelColor
+                                            for(let v=0;v<=100;v+=25) { let y=top+h*(1-v/100); c.strokeStyle=gridColor; c.beginPath(); c.moveTo(left,y); c.lineTo(left+w,y); c.stroke(); c.fillText(v+"%",0,y+4) }
+                                            c.fillText(period==="1"?"24h ago":period+"d ago",left,height-3); c.fillText("Now",Math.max(left,width-30),height-3)
+                                        }
+                                    }
+                                    MText { anchors.centerIn: parent; visible: !plot.hasSamples; text: "No samples for this window yet"; color: root.muted; font.pixelSize: 12 }
+                                    Item {
+                                        x: 53; y: 18
+                                        width: Math.max(0,analyticsGraph.width-71)*root.pageDataProgress(0)
+                                        height: Math.max(1,analyticsGraph.height-36); clip: true
+                                    Canvas {
+                                        x: -35
                                         id: plot; width: Math.max(1,analyticsGraph.width-36); height: Math.max(1,analyticsGraph.height-36)
                                         property var samples: root.series()
+                                        property bool hasSamples: samples.some(p => p.time >= Date.now()/1000-Number(period)*86400 && p.time <= Date.now()/1000)
                                         property string mode: prefs.chartMode
                                         property string period: root.analyticsPeriod
                                         property color fg: root.primary
@@ -1597,7 +1633,6 @@ ShellRoot {
                                             let c = getContext("2d"); c.reset()
                                             let left=38, top=12, w=Math.max(1,width-left-8), h=Math.max(1,height-top-30)
                                             c.font="11px sans-serif"; c.fillStyle=labelColor
-                                            for(let v=0;v<=100;v+=25) { let y=top+h*(1-v/100); c.strokeStyle=gridColor; c.beginPath(); c.moveTo(left,y); c.lineTo(left+w,y); c.stroke(); c.fillText(v+"%",0,y+4) }
                                             let end=Date.now()/1000, start=end-Number(period)*86400
                                             let groups={}
                                             for(let p of samples) { if(p.time<start || p.time>end) continue; let key=String(p.id); if(!groups[key]) groups[key]=[]; groups[key].push(p) }
@@ -1618,38 +1653,38 @@ ShellRoot {
                                                     Object.keys(last).forEach(b=>{let p=last[b], bh=h*p.remaining/100;let sw=Math.max(1,(bw-2)/keys.length);c.fillRect(left+Number(b)*bw+i*sw,top+h-bh,sw,bh)})
                                                 }
                                             })
-                                            c.fillStyle=labelColor; c.fillText(period==="1"?"24h ago":period+"d ago",left,height-3); c.fillText("Now",Math.max(left,width-30),height-3)
-                                            if(!keys.length) { c.fillText("No samples for this window yet",left+8,top+h/2) }
+
                                         }
                                     }
                                     }
                                 }
-                                Description { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
+                                Description { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }
                                     text: root.analyticsStatus + " · Remaining quota (%) · Bars show the last observation in each time bucket." }
-                                SectionTitle { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
+                                SectionTitle { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     text: "Account legend" }
                                 Repeater {
                                     model: Array.from(new Set(root.series().map(p => String(p.id)))).sort()
                                     delegate: RowLayout {
                                         required property string modelData
                                         required property int index
+                                        opacity: root.pageStage(index+8); transform: ItemGrowth { stage: root.pageStage(index+8) }
                                         Layout.fillWidth: true
                                         Rectangle { Layout.preferredWidth: 12; Layout.preferredHeight: 12; radius: 6; color: index % 2 === 0 ? root.primary : root.weeklyColor }
                                         MText { Layout.fillWidth: true; elide: Text.ElideRight; text: (root.series().find(p => String(p.id) === modelData) || {}).name || modelData }
                                     }
                                 }
-                                SectionTitle { opacity: root.pageStage(7); transform: Translate { x: -18*(1-root.pageStage(7)); y: -5*(1-root.pageStage(7)) }
+                                SectionTitle { opacity: root.pageStage(10); transform: ItemGrowth { stage: root.pageStage(10) }
                                     text: "Token and cost analytics" }
-                                Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
+                                Description { opacity: root.pageStage(11); transform: ItemGrowth { stage: root.pageStage(11) }
                                     text: "T3 historical token usage and API-equivalent costs are not connected yet. No fabricated estimates are shown." }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Behaviour"; Layout.fillWidth: true; spacing: 14
-                                RowLayout { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                RowLayout { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     MText { text: "Hover activation"; Layout.fillWidth: true } MSwitch { checked: prefs.hoverEnabled; onToggled: prefs.hoverEnabled = checked } }
-                                SectionTitle { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
+                                SectionTitle { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
                                     text: "Activation position" }
-                                Rectangle { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
+                                Rectangle { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     
                                     Layout.fillWidth: true; implicitHeight: 144; radius: 20; color: root.cardColor
                                     GridLayout { anchors.fill: parent; anchors.margins: 12; columns: 3; rowSpacing: 6; columnSpacing: 6
@@ -1659,26 +1694,26 @@ ShellRoot {
                                         }
                                     }
                                 }
-                                Description { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
+                                Description { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     text: prefs.hotspot.replace("-", " ") }
-                                RowLayout { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
+                                RowLayout { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }
                                     MText { text: "Hotspot size · " + prefs.hotspotSize + " px"; Layout.fillWidth: true } MSlider { from: 8; to: 48; stepSize: 2; value: prefs.hotspotSize; onMoved: prefs.hotspotSize = Math.round(value) } }
-                                RowLayout { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
+                                RowLayout { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     MText { text: "Dismiss delay · " + prefs.dismissDelay + " ms"; Layout.fillWidth: true } MSlider { from: 100; to: 1000; stepSize: 50; value: prefs.dismissDelay; onMoved: prefs.dismissDelay = Math.round(value) } }
-                                RowLayout { opacity: root.pageStage(7); transform: Translate { x: -18*(1-root.pageStage(7)); y: -5*(1-root.pageStage(7)) }
+                                RowLayout { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
                                     MText { text: "Cache refresh · " + prefs.cacheSeconds + " s"; Layout.fillWidth: true } MSlider { from: 2; to: 30; stepSize: 1; value: prefs.cacheSeconds; onMoved: prefs.cacheSeconds = Math.round(value) } }
-                                Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
+                                Description { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
-                                Choice { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1800; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
+                                Choice { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dataMotionMs=1800; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14
-                                SectionTitle { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                SectionTitle { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     text: "Desktop shortcuts" }
-                                Description { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
+                                Description { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
                                     text: "Open aether from anywhere in Hyprland. Choose a modifier and key, then copy the generated configuration into your own keybind file. Existing desktop bindings are never changed automatically." }
-                                RowLayout { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
+                                RowLayout { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Generate desktop bindings"; Layout.fillWidth: true }
@@ -1688,12 +1723,13 @@ ShellRoot {
                                     model: root.shortcutActions
                                     delegate: Rectangle {
                                         id: actionCard
+                                        required property int index
                                         required property var modelData
                                         property var binding: root.bindingFor(modelData)
                                         Layout.fillWidth: true; implicitHeight: bindingContent.implicitHeight + 24
                                         radius: 18; color: root.cardColor
                                         border.width: 1; border.color: root.outline
-                                        opacity: prefs.globalShortcutsEnabled ? 1 : 0.55
+                                        opacity: (prefs.globalShortcutsEnabled ? 1 : 0.55) * root.pageStage(index+4); transform: ItemGrowth { stage: root.pageStage(index+4) }
                                         ColumnLayout {
                                             id: bindingContent
                                             anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 12
@@ -1732,15 +1768,15 @@ ShellRoot {
                                         }
                                     }
                                 }
-                                Description { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
+                                Description { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
                                     visible: prefs.globalShortcutsEnabled && root.duplicateBindings; color: root.danger; text: "Two aether actions use the same shortcut. Choose different combinations before copying." }
-                                RowLayout { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
+                                RowLayout { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Hyprland configuration"; Layout.fillWidth: true; font.weight: Font.Medium }
                                     LiquidSelect { Layout.preferredWidth: 160; model: ["Legacy .conf","Lua"]; currentIndex: prefs.bindSyntax === "lua" ? 1 : 0; onActivated: function(index) { prefs.bindSyntax = index === 1 ? "lua" : "conf" }}
                                 }
-                                TextArea { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
+                                TextArea { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
                                     
                                     id: bindingText
                                     Layout.fillWidth: true; Layout.preferredHeight: Math.max(120, Math.min(240, contentHeight + 24))
@@ -1751,7 +1787,7 @@ ShellRoot {
                                     font.family: root.monoFont; font.pixelSize: 11; padding: 12
                                     background: Rectangle { radius: 16; color: root.cardColor; border.width: 1; border.color: root.outline }
                                 }
-                                RowLayout { opacity: root.pageStage(7); transform: Translate { x: -18*(1-root.pageStage(7)); y: -5*(1-root.pageStage(7)) }
+                                RowLayout { opacity: root.pageStage(10); transform: ItemGrowth { stage: root.pageStage(10) }
                                     
                                     Layout.fillWidth: true
                                     Choice { label: "Reset bindings"; onChosen: prefs.shortcutBindings = "{}" }
@@ -1763,11 +1799,11 @@ ShellRoot {
                                         onChosen: { bindingText.selectAll(); bindingText.copy() }
                                     }
                                 }
-                                Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
+                                Description { opacity: root.pageStage(11); transform: ItemGrowth { stage: root.pageStage(11) }
                                     text: "Replace any previously installed aether binds in your Hyprland configuration, check for conflicts with existing desktop shortcuts, then reload Hyprland. Changing or disabling a binding here only updates the generated text; remove the previous compositor binding yourself." }
-                                SectionTitle { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
+                                SectionTitle { opacity: root.pageStage(12); transform: ItemGrowth { stage: root.pageStage(12) }
                                     text: "Inside the control centre" }
-                                RowLayout { opacity: root.pageStage(10); transform: Translate { x: -18*(1-root.pageStage(10)); y: -5*(1-root.pageStage(10)) }
+                                RowLayout { opacity: root.pageStage(13); transform: ItemGrowth { stage: root.pageStage(13) }
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Enable in-app shortcuts"; Layout.fillWidth: true }
@@ -1777,6 +1813,7 @@ ShellRoot {
                                     model: root.settingsPages.concat(["Refresh local view","Close control centre"])
                                     delegate: Rectangle {
                                         id: localRow
+                                        opacity: root.pageStage(index+10); transform: ItemGrowth { stage: root.pageStage(index+10) }
                                         required property string modelData
                                         required property int index
                                         Layout.fillWidth: true; implicitHeight: 42; radius: 12; color: root.cardColor
@@ -1790,14 +1827,14 @@ ShellRoot {
                                         }
                                     }
                                 }
-                                Description { opacity: root.pageStage(11); transform: Translate { x: -18*(1-root.pageStage(11)); y: -5*(1-root.pageStage(11)) }
+                                Description { opacity: root.pageStage(17); transform: ItemGrowth { stage: root.pageStage(17) }
                                     text: "In-app shortcuts work when the control centre has keyboard focus. The hover drawer deliberately does not steal focus." }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Updates"; Layout.fillWidth: true; spacing: 16
-                                Description { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     text: "Keep aether up to date from its official GitHub repository. Automatic installation is opt-in. Updates do not modify your project checkout, credentials or preferences." }
-                                Rectangle { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
+                                Rectangle { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
                                     
                                     Layout.fillWidth: true; implicitHeight: updateCard.implicitHeight + 32; radius: 24; color: root.cardColor
                                     ColumnLayout {
@@ -1810,38 +1847,38 @@ ShellRoot {
                                         Description { visible: !!root.updateInfo.checked; text: "Last checked " + (root.updateInfo.checked || "") }
                                     }
                                 }
-                                RowLayout { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
+                                RowLayout { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Automatically install updates"; Layout.fillWidth: true }
                                     MSwitch { checked: prefs.autoUpdate; onToggled: { prefs.autoUpdate = checked; prefs.sync() } }
                                 }
-                                SectionTitle { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
+                                SectionTitle { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     text: "Update channel" }
-                                RowLayout { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
+                                RowLayout { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }
                                     
                                     Layout.fillWidth: true
                                     LiquidSelect { Layout.fillWidth: true; model: ["Stable releases","Development"]; currentIndex: prefs.updateChannel === "development" ? 1 : 0; onActivated: function(index) { prefs.updateChannel = index === 1 ? "development" : "stable"; prefs.sync(); root.runUpdater("status") } }
                                 }
-                                Description { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
+                                Description { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     text: prefs.updateChannel === "stable" ? "Only published, non-prerelease GitHub releases. Until a release is published, there is no stable update." : "Tracks main commits. Development builds may introduce regressions; choose Stable if you prefer fewer changes." }
-                                RowLayout { opacity: root.pageStage(7); transform: Translate { x: -18*(1-root.pageStage(7)); y: -5*(1-root.pageStage(7)) }
+                                RowLayout { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
                                     
                                     Layout.fillWidth: true
                                     Choice { label: "Check for updates"; enabled: !updateReader.running && !root.updateInfo.busy; onChosen: root.runUpdater("check") }
                                     Choice { label: "Install update"; enabled: !updateReader.running && !root.updateInfo.busy; onChosen: root.runUpdater("apply") }
                                     Choice { label: "Roll back"; enabled: !updateReader.running && !root.updateInfo.busy && !!root.updateInfo.rollbackAvailable; onChosen: root.runUpdater("rollback") }
                                 }
-                                Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
+                                Description { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     text: "The systemd user timer checks every six hours when automatic installation is enabled. The updater builds before replacing files, refuses downgrades or divergent commits, and restores previous files on installation errors. A previous build is retained for manual rollback. No sudo. If Quickshell does not reload automatically, restart only aether." }
-                                LinkRow { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
+                                LinkRow { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
                                     label: "Release history ↗"; url: "https://github.com/maynkudu/aether-ai/releases" }
-                                LinkRow { opacity: root.pageStage(10); transform: Translate { x: -18*(1-root.pageStage(10)); y: -5*(1-root.pageStage(10)) }
+                                LinkRow { opacity: root.pageStage(10); transform: ItemGrowth { stage: root.pageStage(10) }
                                     label: "Development commits ↗"; url: "https://github.com/maynkudu/aether-ai/commits/main" }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "About"; Layout.fillWidth: true; spacing: 16
-                                Rectangle { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
+                                Rectangle { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     
                                     Layout.fillWidth: true; implicitHeight: 222; radius: 26; color: root.cardColor
                                     ColumnLayout { anchors.fill: parent; anchors.margins: 24; spacing: 8
@@ -1864,31 +1901,30 @@ ShellRoot {
                                         }
                                     }
                                 }
-                                SectionTitle { opacity: root.pageStage(2); transform: Translate { x: -18*(1-root.pageStage(2)); y: -5*(1-root.pageStage(2)) }
+                                SectionTitle { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
                                     text: "Made by" }
-                                LinkRow { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
+                                LinkRow { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     label: "maynkudu · Creator"; url: "https://github.com/maynkudu" }
-                                LinkRow { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
+                                LinkRow { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     label: "Project contributors"; url: "https://github.com/maynkudu/aether-ai/graphs/contributors" }
-                                SectionTitle { opacity: root.pageStage(5); transform: Translate { x: -18*(1-root.pageStage(5)); y: -5*(1-root.pageStage(5)) }
+                                SectionTitle { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }
                                     text: "Open-source community" }
-                                LinkRow { opacity: root.pageStage(6); transform: Translate { x: -18*(1-root.pageStage(6)); y: -5*(1-root.pageStage(6)) }
+                                LinkRow { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     label: "GitHub repository"; githubIcon: true; url: "https://github.com/maynkudu/aether-ai" }
-                                LinkRow { opacity: root.pageStage(7); transform: Translate { x: -18*(1-root.pageStage(7)); y: -5*(1-root.pageStage(7)) }
+                                LinkRow { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
                                     label: "Issues & feature requests"; url: "https://github.com/maynkudu/aether-ai/issues" }
-                                LinkRow { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
+                                LinkRow { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     label: "Changelog"; url: "https://github.com/maynkudu/aether-ai/blob/main/CHANGELOG.md" }
-                                LinkRow { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
+                                LinkRow { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
                                     label: "MIT license"; url: "https://github.com/maynkudu/aether-ai/blob/main/LICENSE" }
-                                LinkRow { opacity: root.pageStage(10); transform: Translate { x: -18*(1-root.pageStage(10)); y: -5*(1-root.pageStage(10)) }
+                                LinkRow { opacity: root.pageStage(10); transform: ItemGrowth { stage: root.pageStage(10) }
                                     label: "Brand artwork sources"; url: "https://github.com/maynkudu/aether-ai/blob/main/shell/BRAND-ASSETS.md" }
-                                Description { opacity: root.pageStage(11); transform: Translate { x: -18*(1-root.pageStage(11)); y: -5*(1-root.pageStage(11)) }
+                                Description { opacity: root.pageStage(11); transform: ItemGrowth { stage: root.pageStage(11) }
                                     text: "Local-first. No telemetry. No inference proxy. No changes to T3 Code or Caelestia." }
                             }
                         }
                         }
                         ScrollFade { anchors.fill: pageScroll; viewport: pageScroll }
-                        }
                     }
                 }
             }

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Responsive navigation, slow data growth
+
+- Separate interface timing (820 ms default) from quota/graph timing (1800 ms default), preserving slow linear ring sweeps without slowing navigation or dropdowns.
+- Replace page-wide and heading clipping with individual top-left anchored growth on settings headings, rows, cards and repeated items across all eight tabs.
+- Keep analytics axes stationary while chart data reveals independently. Add separate interface and data motion preferences.
+
 ### Calmer native motion
 
 - Use one shared duration scale, default 1800 ms, for Linux drawer, settings, navigation, menus and control transitions. Reverse from the current position without overshoot; keep scrolling and input independent.
