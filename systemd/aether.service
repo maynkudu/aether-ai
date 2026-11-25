@@ -1,0 +1,8 @@
+[Unit]
+Description=Aether AI quota monitor
+[Service]
+ExecStart=%h/.local/bin/aether daemon
+Restart=on-failure
+UMask=0077
+[Install]
+WantedBy=default.target
