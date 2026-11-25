@@ -660,7 +660,7 @@ ShellRoot {
                                 RowLayout { MText { text: "Card rounding · " + prefs.cardRadius + " px"; Layout.fillWidth: true } MSlider { from: 8; to: 32; stepSize: 2; value: prefs.cardRadius; onMoved: prefs.cardRadius = Math.round(value) } }
                                 SectionTitle { text: "Typography" }
                                 Flow {
-                                    Layout.fillWidth: true; implicitHeight: childrenRect.height; spacing: 8
+                                    Layout.fillWidth: true; spacing: 8
                                     Repeater { model: ["auto","Inter","Manrope","Rubik","Noto Sans"].filter(n => n === "auto" || root.installedFonts.includes(n))
                                         delegate: Choice { required property string modelData; label: modelData === "auto" ? "Automatic" : modelData; selected: prefs.fontChoice === modelData; onChosen: prefs.fontChoice = modelData }
                                     }
@@ -705,7 +705,7 @@ ShellRoot {
                             ColumnLayout {
                                 visible: root.settingsTab === "Analytics"; Layout.fillWidth: true; spacing: 14
                                 Description { text: "Recorded subscription quota, not token consumption or actual billing. History starts after the new backend is installed." }
-                                Flow { Layout.fillWidth: true; implicitHeight: childrenRect.height; spacing: 8
+                                Flow { Layout.fillWidth: true; spacing: 8
                                     Repeater { model: [{v:"1",n:"24h"},{v:"7",n:"7 days"},{v:"30",n:"30 days"},{v:"90",n:"90 days"}]
                                         delegate: Choice { required property var modelData; label: modelData.n; selected: root.analyticsPeriod === modelData.v; onChosen: root.analyticsPeriod = modelData.v }
                                     }
