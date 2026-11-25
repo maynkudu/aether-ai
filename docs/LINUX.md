@@ -70,7 +70,6 @@ The rolled-back commit is excluded from automatic reinstall until a newer candid
 | Stale cache | `systemctl --user status aether.service`; `journalctl --user -u aether.service -n 50 --no-pager`. |
 | Missing artwork/fonts | Use opt-in fetch flags; restart aether. |
 | Caelestia unavailable | Check standard `qs -c caelestia list` and valid palette. |
-| Liquid Glass unavailable | See [surface materials](CONFIGURATION.md#surface-materials). |
 
 Include OS/architecture, `qs --version`, `hyprctl version` (if applicable), `aether version` and first error in reports. Redact names, private paths and credentials.
 

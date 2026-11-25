@@ -11,34 +11,21 @@ class Backend(unittest.TestCase):
             for folder in (home,bins,account):
                 folder.mkdir()
             fake=bins/("codex.exe" if os.name=="nt" else "codex")
-            shim="""#!/usr/bin/env python3
-import json,sys
-for line in sys.stdin:
-    m=json.loads(line)
-    if m.get("id")==1:
-        print(json.dumps({"id":1,"result":{}}),flush=True)
-    elif m.get("id")==2:
-        print(json.dumps({"id":2,"result":{"rateLimits":{"primary":{"usedPercent":18,"windowDurationMins":300,"resetsAt":2000000000},"secondary":{"usedPercent":36,"windowDurationMins":10080,"resetsAt":2000000000}}}}),flush=True)
-"""
-            if os.name=="nt":
-                fixture=p/"fake.rs"
-                fixture.write_text(r'''
+            fixture=p/"fake.rs"
+            fixture.write_text(r'''
 use std::io::{self,BufRead,Write};
 fn main(){
     for line in io::stdin().lock().lines().map_while(Result::ok) {
-        if line.contains("\"id\":1") {
+        if line.contains("\"method\":\"initialize\"") && line.contains("\"id\":1") {
             println!("{}",r#"{"id":1,"result":{}}"#);
-        } else if line.contains("\"id\":2") {
+        } else if line.contains("\"method\":\"account/rateLimits/read\"") && line.contains("\"id\":2") {
             println!("{}",r#"{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":18,"windowDurationMins":300,"resetsAt":2000000000},"secondary":{"usedPercent":36,"windowDurationMins":10080,"resetsAt":2000000000}}}}"#);
         }
         io::stdout().flush().unwrap();
     }
 }
-''')
-                subprocess.run(["rustc",str(fixture),"-o",str(fake)],check=True,timeout=60)
-            else:
-                fake.write_text(shim)
-                fake.chmod(0o755)
+''',encoding="utf-8")
+            subprocess.run(["rustc",str(fixture),"-o",str(fake)],check=True,timeout=90)
             env=dict(os.environ,HOME=str(home),XDG_CACHE_HOME=str(p/"cache"),XDG_STATE_HOME=str(p/"state"),AETHER_CODEX_HOMES=str(account),PATH=str(bins)+os.pathsep+os.environ["PATH"])
             env.update(USERPROFILE=str(home),APPDATA=str(p/"appdata"),LOCALAPPDATA=str(p/"local"),AETHER_CODEX_BIN=str(fake),CODEX_HOME=str(home/".codex"))
             env.pop("AETHER_T3_SETTINGS",None)
@@ -59,6 +46,7 @@ fn main(){
             stale=json.loads(cli("refresh"))["accounts"][0]
             self.assertEqual(stale["status"],"stale")
             self.assertEqual(stale["windows"],row["windows"])
+            self.assertEqual(json.loads(cli("usage"))["accounts"][0]["status"],"stale")
 
 if __name__=="__main__":
     unittest.main()

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Simplification, identity and CI reliability
+
+- Remove all glass-material preferences, renderer probes and setup UI. Retain opaque themes, liquid motion and Caelestia detection.
+- Add direct precision trackpad scrolling and configurable speed, independently of reveal animations.
+- Adopt the approved spiral brand mark in documentation, Linux navigation and native window icons.
+- Fix the headless Sway execution failure in containerized Linux CI by removing its file capabilities in the disposable runner only; retain all graphical smoke-test gates. Strengthen cross-platform mock tests, native icon self-tests and diagnostic artifacts.
+
 ### Documentation and startup fix
 
 - Rename the dropdown's custom height property to avoid overriding Qt Popup's final property.

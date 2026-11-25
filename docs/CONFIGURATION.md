@@ -10,17 +10,9 @@ The optional font pack includes Inter, Manrope, Montserrat, Poppins, DM Sans, Pl
 
 Caelestia requires a running standard `qs -c caelestia` instance and a usable scheme JSON (normally ~/.local/state/caelestia/scheme.json). If unavailable, the option is disabled and existing selections fall back to Mono. Nonstandard config names are not detected automatically.
 
-## Surface materials
+## Scrolling
 
-| Material | Behaviour |
-|---|---|
-| Solid | Opaque default |
-| Frosted Glass | Adjustable translucency; compositor blur optional |
-| Liquid Glass | Experimental genuine compositor refraction via HyprGlass |
-
-Frosted uses `aether-drawer` and `aether-settings` namespaces. Add compositor blur rules appropriate to your installed version.
-
-Liquid requires Hyprland and a version-matched [HyprGlass](https://github.com/hyprnux/hyprglass) plugin with contour/layer renderer support. Check compatibility before installing; never bypass ABI checks. Copy the setup Lua from Appearance, even while Liquid is disabled, and merge it with existing plugin configuration. Reload the compositor, check renderer, and inspect `hyprctl layers` for `aether-liquid-drawer` and `aether-liquid-settings`. `hyprctl -j hyprglass status` confirms renderer availability but not individual namespace rules. Restart aether when crossing the Liquid boundary. Tint applies directly; optical controls update the generated Lua, which must be applied separately. Missing renderer falls back to Solid. Optical quality and performance remain unverified.
+Appearance → Scrolling controls scroll edge fades, fade depth and trackpad speed (0.8–3.0×; default 1.6×). Precision touchpad events use their pixel delta directly, including precision events classified as mouse input by Qt. Conventional wheel notches use a fixed 48 px step; the trackpad multiplier applies only to pixel deltas. Animation speed does not control scrolling.
 
 ## Account discovery
 

@@ -17,7 +17,7 @@ bash -n install.sh
 bash -n shell/install.sh
 ```
 
-Use --locked once Cargo.lock is committed. Desktop: `cargo run -p aether-desktop --release`. Linux UI: `bash install.sh --ui-only` and restart aether. CI is configured for headless Quickshell and native builds; real interaction and HyprGlass tests need actual desktops.
+Use --locked once Cargo.lock is committed. Desktop: `cargo run -p aether-desktop --release`. Linux UI: `bash install.sh --ui-only` and restart aether. CI is configured for headless Quickshell and native builds; real desktop interaction tests need actual desktops.
 
 ## Principles
 

@@ -174,9 +174,6 @@ ShellRoot {
     property var brandIndex: ({})
     property string brandDirectory: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/brand-icons"
     Component.onCompleted: {
-        // Freeze the layer namespace for this instance; changing it live is
-        // unsupported by the Wayland layer-shell protocol.
-        startupMaterial = requestedMaterial
         if (prefs.motionRevision < 2) {
             if (prefs.motionMs === 820) prefs.motionMs = 1100
             prefs.motionRevision = 2
@@ -296,61 +293,6 @@ ShellRoot {
     }
     property real finalPanelX: 6 + (drawer.width-12-panelWidth)*ax
     property real finalPanelY: 6 + (drawer.height-12-panelHeight)*ay
-    property string requestedMaterial: prefs.materialMode === "legacy" ? (prefs.glassEnabled ? "frosted" : "solid") : prefs.materialMode
-    property string startupMaterial: requestedMaterial
-    property bool restartForMaterial: (startupMaterial === "liquid") !== (requestedMaterial === "liquid")
-    property string effectiveMaterial: restartForMaterial ? startupMaterial : requestedMaterial
-    property bool refractionReady: false
-    property string refractionStatus: "HyprGlass status not checked"
-    property bool glassActive: effectiveMaterial === "frosted" || (effectiveMaterial === "liquid" && refractionReady)
-    property bool liquidActive: effectiveMaterial === "liquid" && refractionReady
-    property color panelColor: glassActive ? Qt.rgba(surface.r,surface.g,surface.b,(liquidActive ? prefs.liquidTint : prefs.glassOpacity)/100) : surface
-    property color materialCard: liquidActive ? Qt.rgba(cardColor.r,cardColor.g,cardColor.b,0.68) : cardColor
-    property string liquidConfig: [
-        "-- Requires compatible HyprGlass with contour support.",
-        "-- Merge into your existing HyprGlass config; do not overwrite it.",
-        "if hl.plugin.hyprglass then",
-        "    local hg = hl.plugin.hyprglass",
-        "    hg.config({ layers = { enabled = true } })",
-        "    hg.preset(\"aether-liquid\", {",
-        "        blur_strength = 0.65,",
-        "        refraction_strength = " + prefs.refractionStrength.toFixed(2) + ",",
-        "        chromatic_aberration = " + prefs.glassDispersion.toFixed(2) + ",",
-        "        fresnel_strength = 0.65,",
-        "        specular_strength = 0.8,",
-        "        edge_thickness_px = 20,",
-        "        edge_height = " + prefs.glassEdgeHeight + ",",
-        "        glass_opacity = 1.0",
-        "    })",
-        "    hg.layer(\"aether-liquid-drawer\", { preset = \"aether-liquid\", mask_mode = \"contour\", mask_threshold = 0.08, mask_feather = 0.12, live_resample = true })",
-        "    hg.layer(\"aether-liquid-settings\", { preset = \"aether-liquid\", mask_mode = \"contour\", mask_threshold = 0.08, mask_feather = 0.12, live_resample = true })",
-        "end"
-    ].join("\n")
-    function checkRefraction() { if (!glassProbe.running) glassProbe.running = true }
-    Process {
-        id: glassProbe
-        onExited: (code, status) => { if (code !== 0) { root.refractionReady = false; root.refractionStatus = "Compatible HyprGlass renderer unavailable" } }
-        command: ["hyprctl", "-j", "hyprglass", "status"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    let v = JSON.parse(text)
-                    let layer = v.features && v.features.layers
-                    root.refractionReady = !!(v.active && layer && layer.active && v.shaders !== "failed")
-                    root.refractionStatus = root.refractionReady ? "HyprGlass " + v.version + " · layer renderer active" : "HyprGlass not rendering layers" + (layer && layer.reason ? " · "+layer.reason : "")
-                } catch(e) {
-                    root.refractionReady = false
-                    root.refractionStatus = "Compatible HyprGlass renderer unavailable"
-                }
-            }
-        }
-    }
-    Timer {
-        interval: 12000; repeat: true; triggeredOnStart: true
-        running: root.settingsOpen || root.requestedMaterial === "liquid" || root.effectiveMaterial === "liquid"
-        onTriggered: root.checkRefraction()
-    }
-    property color glassEdge: Qt.rgba(foreground.r,foreground.g,foreground.b,lightTheme ? 0.16 : 0.23)
     function liquidRadius(w,h,p,finalRadius) {
         let capsule = Math.min(w,h)/2
         if (prefs.motionStyle !== "liquid") return Math.min(finalRadius,capsule)
@@ -379,7 +321,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1100; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property bool glassEnabled: false; property int glassOpacity: 88; property string materialMode: "legacy"; property int liquidTint: 38; property real refractionStrength: 0.8; property real glassDispersion: 0.35; property int glassEdgeHeight: 28 }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 1100; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6 }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -515,10 +457,45 @@ ShellRoot {
     }
     // Visual-only gradients, attached to the viewport rather than the moving
     // content item. Opacity tracks distance from each end, including short lists.
+    // Use precise wheel deltas directly rather than queueing an animation for
+    // each two-finger gesture. Handle mouse-classified precision input too.
+    component PrecisionScroll: WheelHandler {
+        required property Flickable viewport
+        target: null
+        acceptedDevices: PointerDevice.TouchPad | PointerDevice.Mouse
+        orientation: Qt.Vertical
+        blocking: true
+        enabled: viewport.interactive && viewport.contentHeight > viewport.height
+        onWheel: event => {
+            let precise = event.pixelDelta.y !== 0
+            let delta = precise ? event.pixelDelta.y * prefs.trackpadSpeed : event.angleDelta.y / 120 * 48
+            if (delta === 0) return
+            viewport.cancelFlick()
+            let start = viewport.originY
+            let end = start + Math.max(0, viewport.contentHeight - viewport.height)
+            viewport.contentY = Math.max(start, Math.min(end, viewport.contentY - delta))
+        }
+    }
+    // Monochrome vector trace of the approved spiral brand mark.
+    component AetherMark: Item {
+        id: brandMark
+        implicitWidth: 28; implicitHeight: 28
+        Shape {
+            anchors.centerIn: parent
+            width: 660; height: 640
+            scale: Math.min(brandMark.width/660,brandMark.height/640)
+            preferredRendererType: Shape.CurveRenderer
+            ShapePath {
+                strokeColor: "transparent"; strokeWidth: -1
+                fillColor: root.foreground; fillRule: ShapePath.OddEvenFill
+                PathSvg { path: "M118,130 95,159 81,181 66,210 56,235 49,258 42,296 41,341 45,371 52,400 59,421 74,454 99,495 114,514 134,535 161,557 186,573 227,591 262,600 278,602 326,601 365,592 392,581 409,572 429,558 399,576 365,589 354,592 347,592 332,587 312,574 295,554 288,540 283,524 281,495 284,478 292,457 303,440 319,424 334,414 357,405 378,402 393,403 410,407 425,414 434,420 447,433 456,449 459,461 459,475 456,487 452,495 440,508 424,516 406,517 392,512 382,503 376,490 376,478 379,470 385,463 394,458 405,458 410,460 416,466 418,471 417,479 419,469 416,462 409,455 402,452 387,452 373,459 367,465 361,475 358,485 358,500 364,517 376,531 389,539 401,543 419,544 434,541 448,535 462,525 480,502 482,555 489,575 502,590 513,596 525,599 615,599 621,596 612,592 601,579 596,567 593,551 593,272 591,243 586,213 576,180 564,154 544,123 519,95 503,81 480,65 451,50 433,43 406,35 367,29 321,29 272,37 237,48 218,56 193,69 171,83 142,106Z M380,296 406,305 435,322 458,344 466,356 475,377 480,402 479,439 470,471 459,490 458,488 463,479 467,462 464,439 459,427 451,414 437,399 429,393 414,385 392,379 368,379 355,382 337,389 315,404 301,419 292,432 284,448 278,466 275,486 275,499 278,520 283,536 297,561 316,580 334,590 343,593 336,595 303,595 281,591 255,582 239,574 215,557 194,535 177,507 170,488 166,467 166,436 170,415 176,397 189,372 202,354 233,325 266,306 292,297 319,292 345,291Z M447,201 462,225 468,238 478,271 481,304 480,368 466,337 443,305 418,282 391,265 357,252 323,246 284,246 247,253 216,264 194,275 177,286 158,301 139,320 127,335 114,355 104,375 96,396 88,435 89,474 88,475 86,473 62,427 48,382 45,359 45,324 47,308 57,271 74,236 100,201 130,173 169,148 211,131 255,122 295,121 338,128 364,137 385,147 418,170Z" }
+            }
+        }
+    }
     component ScrollFade: Item {
         id: edge
         required property Flickable viewport
-        property color shade: root.panelColor
+        property color shade: root.surface
         property real depth: Math.min(prefs.fadeDepth, height / 3)
         property real range: Math.max(0, viewport.contentHeight - viewport.height)
         property real distance: Math.max(0, Math.min(range, viewport.contentY - viewport.originY))
@@ -561,7 +538,7 @@ ShellRoot {
         implicitHeight: Math.min(780, screen ? screen.height : 780)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: root.startupMaterial === "liquid" ? "aether-liquid-drawer" : "aether-drawer"
+        WlrLayershell.namespace: "aether-drawer"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
         mask: Region { item: corner; Region { item: hitbox } }
@@ -598,9 +575,8 @@ ShellRoot {
             height: seed + (root.panelHeight-seed) * root.heightProgress(root.reveal)
             visible: root.reveal > 0.0001
             radius: root.liquidRadius(width, height, root.reveal, 30)
-            color: root.panelColor
-            border.width: root.glassActive ? 1 : 0
-            border.color: root.glassEdge
+            color: root.surface
+
             clip: true
             opacity: root.smooth(root.reveal / 0.12)
             // The content is always measured at the FINAL width. No text
@@ -614,6 +590,10 @@ ShellRoot {
                 enabled: root.opened && root.reveal > 0.92
                 interactive: enabled && contentHeight > height
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+                synchronousDrag: true
+                maximumFlickVelocity: 3500
+                PrecisionScroll { viewport: scroll }
                 contentWidth: width; contentHeight: content.implicitHeight
                 clip: true
                 ColumnLayout {
@@ -650,7 +630,7 @@ ShellRoot {
                             transform: Translate { y: (1 - accountCard.opacity) * 16 }
                             Layout.fillWidth: true
                             implicitHeight: card.implicitHeight + 36
-                            radius: prefs.cardRadius; color: root.materialCard
+                            radius: prefs.cardRadius; color: root.cardColor
                             ColumnLayout {
                                 id: card
                                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 18
@@ -715,7 +695,7 @@ ShellRoot {
                                 Layout.minimumWidth: 100
                                 Layout.preferredWidth: 144
                                 implicitHeight: ringContent.implicitHeight + 24
-                                radius: prefs.cardRadius; color: root.materialCard
+                                radius: prefs.cardRadius; color: root.cardColor
                                 opacity: root.stagger(index + 2)
                                 transform: Translate { y: (1 - ringCard.opacity) * 16 }
                                 ColumnLayout {
@@ -1063,6 +1043,7 @@ ShellRoot {
                         cellWidth: width/liquidPopup.columns
                         cellHeight: liquidPopup.cell
                         boundsBehavior: Flickable.StopAtBounds
+                        PrecisionScroll { viewport: liquidGrid }
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     }
                 }
@@ -1083,7 +1064,7 @@ ShellRoot {
         property string value: ""
         Layout.fillWidth: true
         implicitHeight: 100
-        radius: 20; color: root.materialCard
+        radius: 20; color: root.cardColor
         ColumnLayout {
             anchors.fill: parent; anchors.margins: 16; spacing: 6
             Description { text: stat.label }
@@ -1116,15 +1097,15 @@ ShellRoot {
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: root.startupMaterial === "liquid" ? "aether-liquid-settings" : "aether-settings"
+        WlrLayershell.namespace: "aether-settings"
         WlrLayershell.keyboardFocus: root.settingsOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
         Rectangle {
             id: settingsBody
             anchors.centerIn: parent
             width: settingsPanel.width * root.settingsReveal
             height: settingsPanel.height * root.heightProgress(root.settingsReveal)
-            radius: root.liquidRadius(width, height, root.settingsReveal, 30); color: root.panelColor
-            border.width: root.glassActive ? 1 : 0; border.color: root.glassEdge
+            radius: root.liquidRadius(width, height, root.settingsReveal, 30); color: root.surface
+
             clip: true
             opacity: root.smooth(root.settingsReveal/0.1)
             visible: root.settingsReveal > 0.0001
@@ -1148,10 +1129,14 @@ ShellRoot {
                 Rectangle {
                     Layout.preferredWidth: settingsPanel.width < 680 ? 126 : 216
                     Layout.fillHeight: true
-                    color: root.materialCard; radius: 24
+                    color: root.cardColor; radius: 24
                     ColumnLayout {
                         anchors.fill: parent; anchors.margins: 14; spacing: 8
-                        MText { text: "aether.ai"; font.pixelSize: settingsPanel.width < 680 ? 20 : 26; font.weight: Font.DemiBold; font.letterSpacing: -0.9; Layout.fillWidth: true }
+                        RowLayout {
+                            Layout.fillWidth: true; spacing: 8
+                            AetherMark { Layout.preferredWidth: 28; Layout.preferredHeight: 28 }
+                            MText { text: "aether.ai"; font.pixelSize: settingsPanel.width < 680 ? 16 : 26; font.weight: Font.DemiBold; font.letterSpacing: -0.9; Layout.fillWidth: true; elide: Text.ElideRight }
+                        }
                         Description { text: "Control centre"; font.pixelSize: 11 }
                         Item { Layout.preferredHeight: 12 }
                         Item {
@@ -1213,6 +1198,10 @@ ShellRoot {
                         width: pageViewport.width; height: pageViewport.height
                         clip: true; contentWidth: width; contentHeight: page.implicitHeight
                         boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
+                        synchronousDrag: true
+                        maximumFlickVelocity: 3500
+                        PrecisionScroll { viewport: pageScroll; enabled: !root.activeDropdown && viewport.interactive && viewport.contentHeight > viewport.height }
                         ColumnLayout {
                             id: page
                             width: pageScroll.width; spacing: 16
@@ -1241,7 +1230,7 @@ ShellRoot {
                                         opacity: root.pageStage(index+5)
                                         transform: Translate { x: -18*(1-root.pageStage(index+5)); y: -5*(1-root.pageStage(index+5)) }
                                         id: overviewAccount
-                                        Layout.fillWidth: true; implicitHeight: overviewDetails.implicitHeight+28; radius: 18; color: root.materialCard
+                                        Layout.fillWidth: true; implicitHeight: overviewDetails.implicitHeight+28; radius: 18; color: root.cardColor
                                         ColumnLayout {
                                             id: overviewDetails
                                             anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 14; spacing: 12
@@ -1320,98 +1309,13 @@ ShellRoot {
                                     MText { text: "Drawer width · " + prefs.layoutWidth + " px"; Layout.fillWidth: true } MSlider { from: 360; to: 560; stepSize: 10; value: prefs.layoutWidth; onMoved: prefs.layoutWidth = Math.round(value) } }
                                 RowLayout { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
                                     MText { text: "Card rounding · " + prefs.cardRadius + " px"; Layout.fillWidth: true } MSlider { from: 8; to: 32; stepSize: 2; value: prefs.cardRadius; onMoved: prefs.cardRadius = Math.round(value) } }
-                                SectionTitle { opacity: root.pageStage(9); text: "Surface material" }
-                                RowLayout {
-                                    opacity: root.pageStage(10); Layout.fillWidth: true
-                                    MText { text: "Material"; Layout.fillWidth: true }
-                                    LiquidSelect {
-                                        Layout.preferredWidth: 200
-                                        unavailableReason: function(i) { return i === 2 && !root.refractionReady ? "Requires Hyprland and a compatible HyprGlass plugin with its layer renderer enabled. Install the plugin, enable layers, then check renderer below." : "" }
-                                        model: ["Solid","Frosted Glass","Liquid Glass"]
-                                        currentIndex: Math.max(0,["solid","frosted","liquid"].indexOf(root.requestedMaterial))
-                                        onActivated: { if (unavailableReason(index)) { currentIndex = Math.max(0,["solid","frosted","liquid"].indexOf(root.requestedMaterial)); return } prefs.materialMode = ["solid","frosted","liquid"][index]; if(index === 2) root.checkRefraction() }
-                                    }
-                                }
-                                ColumnLayout {
-                                    visible: !root.refractionReady && root.requestedMaterial !== "liquid"
-                                    Layout.fillWidth: true; spacing: 8; opacity: root.pageStage(11)
-                                    Description { text: "Liquid Glass unavailable · " + root.refractionStatus + ". Install a compatible HyprGlass plugin and enable its layer renderer." }
-                                    Choice { label: "Check renderer"; enabled: !glassProbe.running; onChosen: root.checkRefraction() }
-                                    LinkRow { label: "HyprGlass setup & compatibility"; url: "https://github.com/hyprnux/hyprglass" }
-                                    // The user must be able to enable the layer renderer
-                                    // before the material itself becomes selectable.
-                                    TextArea {
-                                        id: prerequisitePreset
-                                        Layout.fillWidth: true; Layout.preferredHeight: Math.min(160,Math.max(80,contentHeight+24))
-                                        text: root.liquidConfig; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
-                                        focusPolicy: Qt.NoFocus; activeFocusOnPress: false
-                                        color: root.foreground; font.family: root.monoFont; font.pixelSize: 11; padding: 12
-                                        background: Rectangle { radius: 16; color: root.cardColor; border.width: 1; border.color: root.outline }
-                                    }
-                                    Choice { label: "Copy setup Lua"; elevated: true; onChosen: { prerequisitePreset.selectAll(); prerequisitePreset.copy() } }
-                                }
-                                RowLayout {
-                                    visible: root.requestedMaterial === "frosted"; opacity: root.pageStage(11)
-                                    MText { text: "Frosted opacity · " + prefs.glassOpacity + "%"; Layout.fillWidth: true }
-                                    MSlider { from: 70; to: 98; stepSize: 2; value: prefs.glassOpacity; onMoved: prefs.glassOpacity = Math.round(value) }
-                                }
-                                ColumnLayout {
-                                    visible: root.requestedMaterial === "liquid"; Layout.fillWidth: true; spacing: 10
-                                    opacity: root.pageStage(12)
-                                    Description { text: "Real desktop refraction through HyprGlass. The compositor samples the windows and wallpaper behind aether and bends that image around the animated glass contour." }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        MText { text: "Liquid tint · " + prefs.liquidTint + "%"; Layout.fillWidth: true }
-                                        MSlider { from: 20; to: 75; stepSize: 1; value: prefs.liquidTint; onMoved: prefs.liquidTint = Math.round(value) }
-                                    }
-                                    SectionTitle { text: "Optical preset" }
-                                    Description { text: "These controls update the Lua preset below. Copy the preset into HyprGlass and reload your compositor config to apply them." }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        MText { text: "Refraction · " + prefs.refractionStrength.toFixed(2); Layout.fillWidth: true }
-                                        MSlider { from: 0; to: 1; stepSize: 0.05; value: prefs.refractionStrength; onMoved: prefs.refractionStrength = value }
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        MText { text: "Chromatic dispersion · " + prefs.glassDispersion.toFixed(2); Layout.fillWidth: true }
-                                        MSlider { from: 0; to: 1; stepSize: 0.05; value: prefs.glassDispersion; onMoved: prefs.glassDispersion = value }
-                                    }
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        MText { text: "Lens height · " + prefs.glassEdgeHeight + " px"; Layout.fillWidth: true }
-                                        MSlider { from: 0; to: 40; stepSize: 2; value: prefs.glassEdgeHeight; onMoved: prefs.glassEdgeHeight = Math.round(value) }
-                                    }
-                                    Description { color: root.refractionReady ? root.muted : root.danger; text: root.refractionStatus }
-                                    Description { text: "Requires a version-matched HyprGlass plugin and the aether layer preset. Until its layer renderer is active, aether uses Solid. Renderer status does not verify that the namespaces were whitelisted." }
-                                    Choice { label: "Check renderer"; enabled: !glassProbe.running; onChosen: root.checkRefraction() }
-                                    LinkRow { label: "HyprGlass installation & compatibility"; url: "https://github.com/hyprnux/hyprglass" }
-                                    TextArea {
-                                        id: glassConfigText
-                                        Layout.fillWidth: true; Layout.preferredHeight: Math.max(100,contentHeight+24)
-                                        text: root.liquidConfig; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
-                                        focusPolicy: Qt.NoFocus; activeFocusOnPress: false
-                                        color: root.foreground; selectionColor: root.primary; selectedTextColor: root.onAccent
-                                        font.family: root.monoFont; font.pixelSize: 11; padding: 12
-                                        background: Rectangle { radius: 16; color: root.cardColor; border.width: 1; border.color: root.outline }
-                                    }
-                                    Choice { label: "Copy HyprGlass Lua"; elevated: true; onChosen: { glassConfigText.selectAll(); glassConfigText.copy() } }
-                                    Description { text: "Merge the snippet with your existing plugin configuration. Aether does not install compositor plugins or change global rules. Check hyprctl layers and adjust names if your compositor reports different namespaces." }
-                                }
-                                Description {
-                                    visible: root.requestedMaterial === "frosted"; opacity: root.pageStage(12)
-                                    text: "Traditional translucency and compositor blur. Use your normal Hyprland blur rules for aether-drawer and aether-settings."
-                                }
-                                Description {
-                                    visible: root.restartForMaterial; opacity: root.pageStage(12); color: root.primary
-                                    text: "Restart aether to switch into or out of Liquid Glass. Wayland layer namespaces cannot change after the window connects."
-                                }
                                 SectionTitle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     text: "Typography" }
                                 Description { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     text: "Choose the UI typeface. The dropdown lists installed families and the preview updates immediately." }
                                 Rectangle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     
-                                    Layout.fillWidth: true; implicitHeight: 94; radius: 20; color: root.materialCard
+                                    Layout.fillWidth: true; implicitHeight: 94; radius: 20; color: root.cardColor
                                     ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 4
                                         MText { text: "Intelligence, within limits."; font.pixelSize: 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                                         Description { text: root.sans + " · Aa Bb Cc 0123456789"; font.pixelSize: 12 }
@@ -1430,6 +1334,7 @@ ShellRoot {
                                     text: "Install the curated font pack with bash install.sh --ui-only --fetch-fonts from the repository, then restart aether." }
                                 SectionTitle { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     text: "Scrolling" }
+                                RowLayout { MText { text: "Trackpad speed · " + prefs.trackpadSpeed.toFixed(1) + "×"; Layout.fillWidth: true } MSlider { from: 0.8; to: 3.0; stepSize: 0.1; value: prefs.trackpadSpeed; onMoved: prefs.trackpadSpeed = Math.round(value*10)/10 } }
                                 RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
                                     MText { text: "Scroll edge fades"; Layout.fillWidth: true } MSwitch { checked: prefs.edgeFades; onToggled: prefs.edgeFades = checked } }
                                 RowLayout { opacity: root.pageStage(12); transform: Translate { x: -18*(1-root.pageStage(12)); y: -5*(1-root.pageStage(12)) }
@@ -1565,7 +1470,7 @@ ShellRoot {
                                 Rectangle { opacity: root.pageStage(4); transform: Translate { x: -18*(1-root.pageStage(4)); y: -5*(1-root.pageStage(4)) }
                                     
                                     id: analyticsGraph
-                                    Layout.fillWidth: true; implicitHeight: 280; radius: 22; color: root.materialCard
+                                    Layout.fillWidth: true; implicitHeight: 280; radius: 22; color: root.cardColor
                                     Item {
                                         x: 18; y: 18; width: Math.max(0,analyticsGraph.width-36)*root.pageStage(6); height: Math.max(1,analyticsGraph.height-36); clip: true
                                     Canvas {
@@ -1644,7 +1549,7 @@ ShellRoot {
                                     text: "Activation position" }
                                 Rectangle { opacity: root.pageStage(3); transform: Translate { x: -18*(1-root.pageStage(3)); y: -5*(1-root.pageStage(3)) }
                                     
-                                    Layout.fillWidth: true; implicitHeight: 144; radius: 20; color: root.materialCard
+                                    Layout.fillWidth: true; implicitHeight: 144; radius: 20; color: root.cardColor
                                     GridLayout { anchors.fill: parent; anchors.margins: 12; columns: 3; rowSpacing: 6; columnSpacing: 6
                                         Repeater {
                                             model: ["top-left","top-center","top-right","left-center","","right-center","bottom-left","bottom-center","bottom-right"]
@@ -1663,7 +1568,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: Translate { x: -18*(1-root.pageStage(8)); y: -5*(1-root.pageStage(8)) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: Translate { x: -18*(1-root.pageStage(9)); y: -5*(1-root.pageStage(9)) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1100; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.glassEnabled=false; prefs.glassOpacity=88; prefs.materialMode="solid"; prefs.liquidTint=38; prefs.refractionStrength=0.8; prefs.glassDispersion=0.35; prefs.glassEdgeHeight=28 } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=1100; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6 } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14
@@ -1684,7 +1589,7 @@ ShellRoot {
                                         required property var modelData
                                         property var binding: root.bindingFor(modelData)
                                         Layout.fillWidth: true; implicitHeight: bindingContent.implicitHeight + 24
-                                        radius: 18; color: root.materialCard
+                                        radius: 18; color: root.cardColor
                                         border.width: 1; border.color: root.outline
                                         opacity: prefs.globalShortcutsEnabled ? 1 : 0.55
                                         ColumnLayout {
@@ -1836,13 +1741,17 @@ ShellRoot {
                                 visible: root.settingsTab === "About"; Layout.fillWidth: true; spacing: 16
                                 Rectangle { opacity: root.pageStage(1); transform: Translate { x: -18*(1-root.pageStage(1)); y: -5*(1-root.pageStage(1)) }
                                     
-                                    Layout.fillWidth: true; implicitHeight: 196; radius: 26; color: root.materialCard
+                                    Layout.fillWidth: true; implicitHeight: 196; radius: 26; color: root.cardColor
                                     ColumnLayout { anchors.fill: parent; anchors.margins: 24; spacing: 8
                                         RowLayout { Layout.fillWidth: true
                                             Description { text: "INDEPENDENT SOFTWARE"; font.pixelSize: 11; font.letterSpacing: 1.3 }
                                             Choice { label: "MIT"; onChosen: Qt.openUrlExternally("https://github.com/maynkudu/aether-ai/blob/main/LICENSE") }
                                         }
-                                        MText { text: "aether.ai"; font.pixelSize: 48; font.weight: Font.DemiBold; font.letterSpacing: -2.2; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 12
+                                            AetherMark { Layout.preferredWidth: 46; Layout.preferredHeight: 46 }
+                                            MText { text: "aether.ai"; font.pixelSize: 48; font.weight: Font.DemiBold; font.letterSpacing: -2.2; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        }
                                         Description { text: "Intelligence, within limits." }
                                         Item { Layout.fillHeight: true }
                                         RowLayout { Layout.fillWidth: true

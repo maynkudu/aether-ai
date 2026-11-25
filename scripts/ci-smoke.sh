@@ -13,8 +13,11 @@ cp "$root/scripts/update.py" "$HOME/.local/bin/aether-update"
 chmod +x "$HOME/.local/bin/aether-update"
 printf '{"accounts":[],"updated":null}\n' > "$XDG_CACHE_HOME/aether/usage.json"
 export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1
+export WLR_RENDERER_ALLOW_SOFTWARE=1
 export LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=wayland
-printf 'output * resolution 1280x800\n' > "$work/sway.conf"
+export QT_QUICK_BACKEND=software QT_WAYLAND_CLIENT_BUFFER_INTEGRATION=shm
+unset WAYLAND_DISPLAY DISPLAY
+printf 'output * resolution 1280x800\nxwayland disable\n' > "$work/sway.conf"
 sway -c "$work/sway.conf" >"$work/sway.log" 2>&1 &
 compositor=$!
 shellpid=""
@@ -22,7 +25,7 @@ cleanup() {
   code=$?
   if [[ -n "$shellpid" ]]; then kill "$shellpid" 2>/dev/null || true; fi
   kill "$compositor" 2>/dev/null || true
-  cat "$work/sway.log" >&2
+  if [[ -f "$work/sway.log" ]]; then cat "$work/sway.log" >&2; fi
   if [[ -f "$work/qs.log" ]]; then cat "$work/qs.log" >&2; fi
   rm -rf "$work"
   exit "$code"
@@ -34,7 +37,7 @@ for i in $(seq 1 60); do
   kill -0 "$compositor"
   sleep 0.25
 done
-test -n "$WAYLAND_DISPLAY"
+test -n "${WAYLAND_DISPLAY:-}" || { echo "Headless Wayland socket was not created" >&2; exit 1; }
 qs -c aether >"$work/qs.log" 2>&1 &
 shellpid=$!
 for i in $(seq 1 80); do

@@ -20,7 +20,7 @@ aether.ai brings your AI usage limits into one glanceable desktop interface. Tra
 Built with a shared Rust core, an independent Quickshell overlay for Linux, and an experimental native Rust/egui frontend for Windows and macOS.
 
 > [!NOTE]
-> **Early development (v0.2.0).** Codex is the only implemented quota adapter. Linux is the primary platform. Native Windows and macOS builds still require verification. No stable GitHub release has been published yet.
+> **Early development (v0.2.0).** Codex is the only implemented quota adapter. Linux is the primary platform. Windows x64 and Apple Silicon / Intel macOS preview builds passed CI; physical-device testing remains pending. No stable GitHub release has been published yet.
 
 <img src="docs/assets/interface.svg" alt="Illustration of aether control centre, quota cards, circular drawer and history" width="100%">
 
@@ -38,7 +38,7 @@ Built with a shared Rust core, an independent Quickshell overlay for Linux, and 
 
 <img src="docs/assets/palettes.svg" alt="Seven built-in colour schemes and dynamic Caelestia palette" width="100%">
 
-Linux supports Liquid, Smooth and Reduced motion; Solid, Frosted Glass and experimental compositor-backed Liquid Glass. Caelestia and refractive glass are optional and disabled when prerequisites are missing. See [configuration](docs/CONFIGURATION.md).
+Linux supports Liquid, Smooth and Reduced motion, with opaque theme-aware surfaces and adjustable trackpad speed. Caelestia is optional and disabled when its prerequisites are missing. See [configuration](docs/CONFIGURATION.md).
 
 ## Platforms
 
@@ -50,7 +50,6 @@ Linux supports Liquid, Smooth and Reduced motion; Solid, Frosted Glass and exper
 | Hover drawer, global hotkeys | Implemented | Planned | Planned |
 | Theme support | Eight schemes | Mono / Mono Light | Mono / Mono Light |
 | Application updates | Opt-in updater | Planned | Planned |
-| Refractive glass | Optional HyprGlass | Not implemented | Not implemented |
 
 The desktop preview polls while open; the Linux daemon runs independently. No Electron or hosted service required.
 
@@ -156,7 +155,7 @@ See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-
 | Guide | Contents |
 |---|---|
 | [Linux installation](docs/LINUX.md) | Setup, systemd, IPC, shortcuts, updates and troubleshooting |
-| [Configuration](docs/CONFIGURATION.md) | Themes, glass, fonts, discovery, analytics and storage |
+| [Configuration](docs/CONFIGURATION.md) | Themes, fonts, motion, scrolling, discovery and storage |
 | [Desktop preview](apps/desktop/README.md) | Windows and macOS setup and limitations |
 | [Architecture](docs/ARCHITECTURE.md) | Workspace structure and shared interfaces |
 | [Release engineering](docs/RELEASING.md) | CI gates, versioning, builds and publication |
@@ -169,7 +168,7 @@ See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-
 - [ ] Expand quota adapters beyond Codex; validate managed T3 credentials.
 - [ ] Bring tray/menu-bar, global hotkeys and motion parity to native ports.
 - [ ] Add signed distribution, dependency auditing and reproducible release builds.
-- [ ] Validate optical materials and reduced-motion behaviour.
+- [ ] Validate scroll interaction and reduced-motion behaviour.
 
 ## Contributing
 
@@ -181,7 +180,7 @@ Focused improvements, bug reports and provider adapters are welcome. Start with 
 
 MIT © [maynkudu](https://github.com/maynkudu). See [LICENSE](LICENSE).
 
-Built with [Rust](https://www.rust-lang.org/), [Quickshell](https://quickshell.org/), [Qt Quick](https://www.qt.io/) and [egui](https://github.com/emilk/egui). Motion inspired by [Modulo](https://modulo.maynkudu.com/components/liquid-animations). Optional refractive rendering uses [HyprGlass](https://github.com/hyprnux/hyprglass). Provider trademarks and third-party artwork retain their respective ownership and terms.
+Built with [Rust](https://www.rust-lang.org/), [Quickshell](https://quickshell.org/), [Qt Quick](https://www.qt.io/) and [egui](https://github.com/emilk/egui). Motion inspired by [Modulo](https://modulo.maynkudu.com/components/liquid-animations). Provider trademarks and third-party artwork retain their respective ownership and terms.
 
 <div align="center">
 
