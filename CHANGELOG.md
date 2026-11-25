@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Fluid control refinement
+
+- Shared liquid-style native dropdowns for appearance, typography, shortcut choices and update channels.
+- Slower 1100 ms default, damped corner-anchored growth with fixed content coordinates, left-to-right page clipping and staggered sections. Existing custom speed settings preserved.
+- Provider categories, shared FreeGG/AgentRouter artwork by maintainer request, official GitHub mark in navigation and About.
+- Optional translucent glass surfaces with compositor blur namespaces; no screen refraction or compositor edits. Backend/updater unchanged.
+
 ## Unreleased — Liquid motion and updater
 
 - Native analytic springs inspired by Modulo: interruptible shell growth, separately staggered content, sliding navigation pill, elastic button/switch/slider details. Liquid, Smooth and Reduced motion modes.

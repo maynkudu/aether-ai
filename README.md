@@ -117,3 +117,13 @@ Manual commands: `aether-update status`, `aether-update check development`, `aet
 ### Liquid motion
 
 Appearance → Motion offers Liquid (default), Smooth and Reduced. Inspired by Modulo's interruptible analytic springs, the drawer and settings window grow with separate shell/content layers; the sidebar has a moving selection capsule; buttons, switches and slider thumbs have spring-driven motion. Qt Quick FrameAnimation ticks only while spring values are moving. The UI retains native QML, and text and icon geometry remain unscaled. This is an adaptation of the design principles, not an embedded web library. Reduced disables the new spring transitions; some existing colour and quota transitions may remain. See `https://modulo.maynkudu.com/components/liquid-animations` for the original design reference.
+
+### Fluid UI refinement
+
+All ordinary settings selectors use one native liquid-styled ComboBox (including fonts, palettes, layout, motion mode, shortcut modifiers/keys and update channels). Analytics view switches remain quick-access controls. Default motion is 1100 ms (previous exact default 820 ms migrates once; custom durations are retained). The drawer grows from the selected corner/edge toward the screen, without resizing its content layout. Settings pages reveal left-to-right with staggered sections and a progressive title reveal. Smooth mode uses more heavily damped springs. Reduced remains available.
+
+Providers are grouped as first-party agents, harnesses/routing platforms, aggregators and other providers. OpenRouter is grouped with harness/routing tools for convenience, not described as an agent harness. FreeGG uses AgentRouter's artwork at the maintainer's request; account identity and visibility remain separate. GitHub uses its official Octicons mark; see brand sources.
+
+#### Experimental glass
+
+Appearance → Surface material → Liquid glass enables a translucent tinted shell with a subtle border and adjustable opacity. True desktop refraction is not implemented. Hyprland can blur the background of the two layer-shell surfaces using their namespaces `aether-drawer` and `aether-settings`. See https://wiki.hypr.land/configuring/core/rules/layer-rules/ for the syntax applicable to your version. No compositor configuration is changed by aether. Check existing Caelestia rules for conflicts. Keep glass disabled if blur is unavailable or contrast is insufficient.

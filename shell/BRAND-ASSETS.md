@@ -20,3 +20,7 @@ FreeGG and other aggregators without a verified source are not assigned somebody
 Source files are downloaded on your machine only when `--fetch-icons` is passed; checked Git hashes reject changed pinned upstream assets. If a download or rasterisation fails, valid previously installed brand artwork is retained or the provider initial is shown. No legacy Rune provider artwork is used. Source artwork is not bundled with this repository. Follow the current brand guidelines and review permissions before redistributing assets. Original brand colours are retained where no approved monochrome variant exists.
 
 Remote site assets and the Grok archive layout still require an end-to-end installation test; the source paths and the pinned Git blobs have been checked separately.
+
+### GitHub mark and provider grouping
+
+The small GitHub mark in the sidebar and repository link uses the original vector path from [Primer Octicons](https://github.com/primer/octicons/blob/main/icons/mark-github-24.svg), Git blob `81949e7b460a7bbf1cb2431462f6bd947e32f0ce`. The upstream license is retained in `shell/OCTICONS-LICENSE`. FreeGG is displayed using the AgentRouter asset at the maintainer's request; they remain distinct provider identities.
