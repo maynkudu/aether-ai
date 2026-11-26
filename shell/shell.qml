@@ -13,6 +13,12 @@ ShellRoot {
     property var allAccounts: []
     property var clientUsage: []
     property bool usageReady: false
+    property bool cacheReady: false
+    property string analyticsError: ""
+    property bool analyticsLoading: analyticsReader.running
+    property bool cacheLoading: reader.running
+    property bool localDataLoading: analyticsLoading || cacheLoading
+    property string loadingMessage: cacheLoading && !cacheReady ? "Reading cached limits…" : analyticsLoading ? "Reading local usage…" : cacheLoading ? "Refreshing cached limits…" : analyticsError || (analyticsUpdatedAt ? "Local usage updated " + Qt.formatTime(new Date(analyticsUpdatedAt),"HH:mm") : "Waiting for local usage")
     property double analyticsUpdatedAt: 0
     function usageSum(rows) {
         let total={inputTokens:0,outputTokens:0,cachedInputTokens:0,totalTokens:0,steps:0,costUsd:null,costComplete:true,tokensComplete:true}
@@ -91,9 +97,11 @@ ShellRoot {
         let api=accounts.filter(r => root.authTier(r.account)===1)
         let other=accounts.filter(r => root.authTier(r.account)===2)
         let rows=[]
-        if(oauth.length===1 && api.length===1) rows.push([oauth[0],api[0]])
-        else for(let list of [oauth,api]) for(let i=0;i<list.length;i+=2) rows.push(list.slice(i,i+2))
-        for(let i=0;i<other.length;i+=2) rows.push(other.slice(i,i+2))
+        if(oauth.length===1 && api.length+other.length===1) return [[oauth[0],...api,...other]]
+        for(let i=0;i<oauth.length;i+=2) rows.push(oauth.slice(i,i+2))
+        // Keep a lone API account beside its free-model or unknown-account peer.
+        if(api.length===1 && other.length===1) rows.push([api[0],other[0]])
+        else for(let list of [api,other]) for(let i=0;i<list.length;i+=2) rows.push(list.slice(i,i+2))
         return rows
     }
     function overviewGroups() {
@@ -178,13 +186,19 @@ ShellRoot {
         let id = String(provider || "").toLowerCase().replace(/[^a-z0-9]/g, "")
         return id.startsWith("agentrouter") || id.startsWith("freegg")
     }
-    // Keep existing gauge delegates alive across cache refreshes.
-    property var ringAccountIds: []
-    function syncRingAccounts() {
-        let ids = quotaAccounts.map(a => String(a.id))
-        if (JSON.stringify(ids) !== JSON.stringify(ringAccountIds)) ringAccountIds = ids
+    // Rows are keyed by account IDs so cache refreshes keep gauges alive.
+    property var drawerRows: []
+    property var drawerAccountIds: {
+        let ids=[]
+        for(let row of drawerRows) ids=ids.concat(row)
+        return ids
     }
-    onQuotaAccountsChanged: syncRingAccounts()
+    function syncDrawerRows() {
+        let rows=[]
+        for(let group of overviewAccountGroups) for(let row of group.rows) rows.push(row.map(item => String(item.account.id)))
+        if(JSON.stringify(rows)!==JSON.stringify(drawerRows)) drawerRows=rows
+    }
+    onOverviewAccountGroupsChanged: Qt.callLater(syncDrawerRows)
     property var hiddenProviders: parseList(prefs.hiddenProviders)
     property var hiddenAccounts: parseList(prefs.hiddenAccounts)
     function parseList(value) { try { let a = JSON.parse(value); return Array.isArray(a) ? a : [] } catch(e) { return [] } }
@@ -291,7 +305,7 @@ ShellRoot {
     }
     function refreshView() {
         if (!reader.running) reader.running = true
-        if (settingsOpen) refreshAnalytics()
+        refreshAnalytics()
     }
     function dismissAll() { if (activeDropdown) activeDropdown.close(); settingsOpen = false; hide() }
     property var updateInfo: ({message:"No update check yet", installed:"", candidate:""})
@@ -331,19 +345,22 @@ ShellRoot {
         id: analyticsReader
         property string requestedPeriod: "7"
         command: [Quickshell.env("HOME") + "/.local/bin/aether", "analytics", requestedPeriod]
-        onExited: if (requestedPeriod !== root.analyticsPeriod) Qt.callLater(root.refreshAnalytics)
+        onExited: (code, status) => {
+            if (requestedPeriod !== root.analyticsPeriod) Qt.callLater(root.refreshAnalytics)
+            else if (code !== 0) { root.usageReady = true; root.analyticsError = "Could not update local usage. Refresh to retry." }
+        }
         stdout: StdioCollector { onStreamFinished: {
             if (analyticsReader.requestedPeriod !== root.analyticsPeriod) return
             try {
                 let data = JSON.parse(text)
                 root.analyticsSamples = data.samples || []
                 root.openCodeAnalytics = data.openCode || ({status:"not_detected"}); root.clientUsage=data.clients || []
-                root.usageReady = true; root.analyticsUpdatedAt = Date.now()
+                root.usageReady = true; root.analyticsError = ""; root.analyticsUpdatedAt = Date.now()
                 root.analyticsStatus = root.analyticsSamples.length ? "Local Codex session logs" : "No local token usage found for this period"
-            } catch(e) { root.analyticsSamples = []; root.clientUsage = []; root.usageReady = true; root.openCodeAnalytics = ({status:"unavailable"}); root.analyticsStatus = "Token usage unavailable; install the updated backend" }
+            } catch(e) { root.usageReady = true; root.analyticsError = "Could not read local usage. Refresh to retry."; root.analyticsStatus = root.analyticsError }
         } }
     }
-    function refreshAnalytics() { if (!analyticsReader.running) { analyticsReader.requestedPeriod = analyticsPeriod; analyticsReader.running = true } }
+    function refreshAnalytics() { if (!analyticsReader.running) { analyticsError = ""; analyticsReader.requestedPeriod = analyticsPeriod; analyticsReader.running = true } }
     property var analyticsRows: {
         return analyticsSamples.filter(a => !hiddenProviders.includes(logo(a.provider)) && !hiddenAccounts.includes(String(a.id)))
     }
@@ -447,7 +464,7 @@ ShellRoot {
             if (prefs.hotspotSize < 32) prefs.hotspotSize = 40
             prefs.hotspotRevision = 1
         }
-        syncRingAccounts()
+        syncDrawerRows()
         Qt.callLater(root.refreshAnalytics)
         scheduleFullscreenRefresh()
         if (!reader.running) reader.running = true
@@ -575,16 +592,17 @@ ShellRoot {
     // Geometry settles first; each content stage gets the same easing window.
     MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: 2.2; curve: Easing.Linear }
     property real reveal: quintic(drawerSpring.value / 0.62)
-    function drawerBounce(progress) {
+    function surfaceBounce(progress, width, height) {
         if (prefs.motionStyle === "reduced") return 0
         let phase = unit((progress - 0.35) / 0.65)
-        let amplitude = Math.min(0.012, 4 / Math.max(1, panelWidth, panelHeight))
+        let amplitude = Math.min(0.012, 4 / Math.max(1, width, height))
         return amplitude * Math.sin(2 * Math.PI * phase) * Math.pow(Math.sin(Math.PI * phase), 2)
     }
-    MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: root.settingsOpen ? 1 : 2/3 }
-    property real settingsReveal: unit(settingsSpring.value)
-    MotionValue { id: settingsContentSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
-    MotionValue { id: pageSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
+    function drawerBounce(progress) { return surfaceBounce(progress,panelWidth,panelHeight) }
+    MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: 2.2; curve: Easing.Linear }
+    property real settingsReveal: quintic(settingsSpring.value / 0.62)
+    property real settingsContentReveal: quintic((settingsSpring.value - 0.44) / 0.30)
+    MotionValue { id: pageSpring; targetValue: 1; factor: 1.05; proportional: true; curve: Easing.Linear }
     MotionValue { id: pageDataClock; targetValue: root.settingsOpen ? 1 : 0; factor: 1.40; dataMotion: true; proportional: true; curve: Easing.Linear }
     function heightProgress(p) { return p }
     function pageStage(i) {
@@ -615,7 +633,7 @@ ShellRoot {
     property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
     property var drawerStages: {
         let next = 2
-        let ordered = accounts.filter(a => !compactAccount(a)).concat(accounts.filter(a => compactAccount(a)))
+        let ordered = drawerAccountIds.map(id => accounts.find(a => String(a.id)===id)).filter(Boolean)
         let starts = ordered.map(account => {
             let start = next
             let compact = compactAccount(account)
@@ -734,6 +752,42 @@ ShellRoot {
             visible: status === Image.Ready
         }
     }
+    component LoadingIndicator: Item {
+        id: loadingIndicator
+        property bool active: false
+        property bool animating: active && visible && (root.opened || root.settingsOpen) && prefs.motionStyle !== "reduced"
+        implicitWidth: 14; implicitHeight: 14
+        visible: active
+        Accessible.ignored: true
+        Shape {
+            anchors.fill: parent; preferredRendererType: Shape.CurveRenderer
+            rotation: 0
+            NumberAnimation on rotation { running: loadingIndicator.animating; from: 0; to: 360; duration: Math.max(650,root.motionDuration(3)); loops: Animation.Infinite }
+            ShapePath { fillColor: "transparent"; strokeColor: root.primary; strokeWidth: 2; capStyle: ShapePath.RoundCap
+                PathAngleArc { centerX: loadingIndicator.width/2; centerY: loadingIndicator.height/2; radiusX: Math.max(1,loadingIndicator.width/2-2); radiusY: Math.max(1,loadingIndicator.height/2-2); startAngle: -90; sweepAngle: 270 }
+            }
+        }
+    }
+    component LoadingStatus: RowLayout {
+        property bool active: false
+        property string text: ""
+        Accessible.role: Accessible.StaticText
+        Accessible.name: text
+        spacing: 7
+        LoadingIndicator { active: parent.active; visible: active; Layout.preferredWidth: 13; Layout.preferredHeight: 13 }
+        MText { text: parent.text; color: root.muted; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight }
+    }
+    component SkeletonLine: Rectangle {
+        id: skeleton
+        implicitWidth: 100; implicitHeight: 12; radius: Math.min(6,height/2); color: root.track
+        opacity: 0.6; Accessible.ignored: true
+        SequentialAnimation on opacity {
+            running: skeleton.visible && (root.opened || root.settingsOpen) && prefs.motionStyle !== "reduced"
+            loops: Animation.Infinite
+            NumberAnimation { from: 0.35; to: 0.8; duration: Math.max(600,root.motionDuration(2.6)); easing.type: Easing.InOutSine }
+            NumberAnimation { from: 0.8; to: 0.35; duration: Math.max(600,root.motionDuration(2.6)); easing.type: Easing.InOutSine }
+        }
+    }
     component MText: Text { font.family: root.sans; color: root.foreground; font.pixelSize: 14; renderType: Text.QtRendering }
     component QuotaHint: ToolTip {
         id: hint
@@ -830,10 +884,15 @@ ShellRoot {
     component MButton: Button {
         id: button
         property string glyph: "settings"
+        property bool busy: false
         implicitWidth: 44; implicitHeight: 44
+        enabled: !busy
         hoverEnabled: true; focusPolicy: Qt.StrongFocus
         Accessible.name: glyph === "refresh" ? "Refresh local view" : "Settings"
-        contentItem: Item { LineIcon { anchors.centerIn: parent; width: 20; height: 20; name: button.glyph } }
+        contentItem: Item {
+            LineIcon { anchors.centerIn: parent; width: 20; height: 20; name: button.glyph; visible: !button.busy }
+            LoadingIndicator { anchors.centerIn: parent; width: 18; height: 18; active: button.busy }
+        }
         background: Rectangle {
             radius: button.down ? 14 : button.hovered ? 16 : 22
             color: button.hovered ? root.track : root.buttonColor
@@ -892,10 +951,11 @@ ShellRoot {
     Timer { id: closeTimer; interval: prefs.dismissDelay; onTriggered: if (!root.settingsOpen && !root.pinned && !drawerHover.hovered) root.hide() }
     Process {
         id: reader
+        onExited: (code, status) => { if (code !== 0) { root.cacheReady=true; root.status="Cache unavailable" } }
         command: [Quickshell.env("HOME") + "/.local/bin/aether", "usage"]
         stdout: StdioCollector { onStreamFinished: {
-            try { let data = JSON.parse(text); let snapshot = JSON.stringify(data.accounts || []); if (snapshot !== root.accountSnapshot) { root.accountSnapshot = snapshot; root.allAccounts = data.accounts || [] } root.status = data.updated ? "Updated " + Qt.formatTime(new Date(data.updated * 1000), "HH:mm") : "No cached data" }
-            catch(e) { root.status = "Cache unavailable" }
+            try { let data = JSON.parse(text); root.cacheReady = true; let snapshot = JSON.stringify(data.accounts || []); if (snapshot !== root.accountSnapshot) { root.accountSnapshot = snapshot; root.allAccounts = data.accounts || [] } root.status = data.updated ? "Updated " + Qt.formatTime(new Date(data.updated * 1000), "HH:mm") : "No cached data" }
+            catch(e) { root.cacheReady = true; root.status = "Cache unavailable" }
         } }
     }
     Timer { interval: prefs.cacheSeconds * 1000; running: root.opened; repeat: true; triggeredOnStart: true; onTriggered: { root.now = Date.now(); if (!reader.running) reader.running = true } }
@@ -1125,7 +1185,7 @@ ShellRoot {
                             MText { text: "aether.ai"; font.pixelSize: 26; font.weight: Font.DemiBold; font.letterSpacing: -1; Layout.fillWidth: true; elide: Text.ElideRight }
                             MText { text: "AI resource monitor"; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
-                        MButton { implicitWidth: 36; implicitHeight: 36; glyph: "refresh"; Layout.alignment: Qt.AlignVCenter; onClicked: root.refreshView() }
+                        MButton { implicitWidth: 36; implicitHeight: 36; glyph: "refresh"; busy: root.localDataLoading; Layout.alignment: Qt.AlignVCenter; onClicked: root.refreshView() }
                         MButton { implicitWidth: 36; implicitHeight: 36; Layout.alignment: Qt.AlignVCenter; onClicked: { root.settingsOpen = true; root.hide() } }
                     }
                     RowLayout {
@@ -1136,288 +1196,31 @@ ShellRoot {
                         MText { text: "ACCOUNTS · REMAINING QUOTA"; color: root.muted; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.6; Layout.fillWidth: true }
                         MText { text: (root.accounts.length < 10 ? "0" : "") + root.accounts.length; color: root.muted; font.pixelSize: 12; font.family: root.monoFont }
                     }
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8; opacity: root.stagger(1)
-                        MText { text: "Hide unavailable"; font.pixelSize: 11; color: root.muted; Layout.fillWidth: true }
-                        MSwitch { implicitHeight: 28; quietOutline: true; checked: prefs.hideUnavailableAccounts; Accessible.name: "Hide unavailable accounts"; onToggled: { prefs.hideUnavailableAccounts=checked; prefs.sync() } }
-                    }
-                    MText { opacity: root.stagger(2); visible: root.accounts.length === 0; text: prefs.hideUnavailableAccounts && root.allAccounts.length ? "No available accounts. Turn off Hide unavailable to see all accounts." : "No cached accounts. Run aether refresh."; color: root.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    LoadingStatus { Layout.fillWidth: true; visible: !root.cacheReady; active: root.cacheLoading; text: "Reading cached accounts…"; opacity: root.stagger(1) }
+                    MText { opacity: root.stagger(2); visible: root.cacheReady && root.accounts.length === 0; text: prefs.hideUnavailableAccounts && root.allAccounts.length ? "No available accounts. Change visibility in Providers settings." : "No cached accounts. Run aether refresh."; color: root.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Repeater {
-                        model: root.rings ? [] : root.quotaAccounts
-                        delegate: Rectangle {
-                            id: accountCard
+                        model: root.drawerRows
+                        delegate: GridLayout {
+                            id: drawerRow
                             required property var modelData
-                            required property int index
-                            property int revealStage: root.drawerStages.accounts[index] || 2
-                            property int detailStage: revealStage + 2 + (modelData.status !== "ok" ? 1 : 0)
-                            opacity: root.stagger(revealStage)
-                            transform: Translate { y: (1 - accountCard.opacity) * 4 }
-                            Layout.fillWidth: true
-                            implicitHeight: card.implicitHeight + 28
-                            radius: prefs.cardRadius; color: root.cardColor
-                            ColumnLayout {
-                                id: card
-                                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 14
-                                spacing: 12
-                                RowLayout {
-                                    id: accountHeading
-                                    opacity: root.stagger(accountCard.revealStage + 1)
-                                    transform: Translate { y: (1 - accountHeading.opacity) * 4 }
-                                    Layout.fillWidth: true; spacing: 6
-                                    Rectangle {
-                                        Layout.preferredWidth: 36; Layout.preferredHeight: 36
-                                        radius: 13; color: root.buttonColor
-                                        ProviderIcon { anchors.centerIn: parent; width: 20; height: 20; name: root.logo(accountCard.modelData.provider) }
-                                    }
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
-                                        MText { text: accountCard.modelData.provider; font.weight: Font.DemiBold; font.pixelSize: 15; Layout.fillWidth: true; elide: Text.ElideRight }
-                                        MText { text: accountCard.modelData.name; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
-                                    }
-                                }
-                                MText { opacity: root.stagger(accountCard.revealStage + 2); visible: accountCard.modelData.status !== "ok"; text: root.accountStatus(accountCard.modelData); color: root.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                                Repeater {
-                                    model: accountCard.modelData.windows || []
-                                    delegate: ColumnLayout {
-                                        required property var modelData
-                                        id: quota
-                                        property bool known: modelData.remaining !== null && modelData.remaining !== undefined && isFinite(Number(modelData.remaining))
-                                        property real remaining: known ? Math.max(0, Math.min(100, Number(modelData.remaining))) : 0
-                                        property color indicator: known && remaining < 20 ? root.danger : root.primary
-                                        required property int index
-                                        opacity: root.stagger(accountCard.detailStage + index)
-                                        transform: Translate { y: (1 - quota.opacity) * 4 }
-                                        MotionValue { id: quotaFill; targetValue: root.opened && quota.opacity > 0.15 ? 1 : 0; dataMotion: true; animateInitial: quota.opacity < 1; factor: 0.75; curve: Easing.InOutCubic }
-                                        Layout.fillWidth: true; spacing: 6
-                                        RowLayout {
-                                            Layout.fillWidth: true; spacing: 6
-                                            MText { text: root.windowLabel(quota.modelData); font.pixelSize: 12; font.weight: Font.Medium; Layout.fillWidth: true }
-                                            MText { text: root.windowValue(quota.modelData); color: quota.indicator; font.family: root.monoFont; font.pixelSize: 17; font.weight: Font.DemiBold; Layout.alignment: Qt.AlignRight }
-                                        }
-                                        Rectangle {
-                                            Layout.fillWidth: true; implicitHeight: 6; radius: 3; color: root.track
-                                            Rectangle { property real displayedQuota: quota.remaining; Behavior on displayedQuota { NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.InOutCubic } } width: parent.width * displayedQuota / 100 * quotaFill.value; height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator }
-                                        }
-                                        MText { text: quota.known ? root.resetText(quota.modelData.reset) : "Quota unavailable"; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
-                                    }
+                            Layout.fillWidth: true; columnSpacing: 10; rowSpacing: 10
+                            columns: root.rings ? modelData.length : 1
+                            uniformCellWidths: true; uniformCellHeights: true
+                            Repeater {
+                                model: drawerRow.modelData
+                                delegate: Loader {
+                                    id: accountLoader
+                                    required property string modelData
+                                    property var account: root.accounts.find(a => String(a.id) === modelData) || ({id:modelData,provider:"",name:"",windows:[]})
+                                    property int accountIndex: root.drawerAccountIds.indexOf(modelData)
+                                    Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumWidth: 0; Layout.preferredWidth: 1
+                                    Layout.preferredHeight: item ? item.implicitHeight : 0
+                                    sourceComponent: root.compactAccount(account) ? usageDelegate : root.rings ? ringDelegate : quotaDelegate
+                                    Component { id: quotaDelegate; DrawerQuotaCard { modelData: accountLoader.account; index: accountLoader.accountIndex } }
+                                    Component { id: ringDelegate; DrawerRingCard { modelData: accountLoader.modelData; index: accountLoader.accountIndex } }
+                                    Component { id: usageDelegate; DrawerUsageCard { modelData: accountLoader.account; index: accountLoader.accountIndex } }
                                 }
                             }
-                        }
-                    }
-                    GridLayout {
-                        visible: root.rings && root.quotaAccounts.length > 0
-                        Layout.fillWidth: true
-                        columns: Math.max(1, Math.min(3, Math.floor((scroll.width + 10) / 142)))
-                        columnSpacing: 10; rowSpacing: 10
-                        Repeater {
-                            model: root.rings ? root.ringAccountIds : []
-                            delegate: Rectangle {
-                                id: ringCard
-                                required property var modelData
-                                required property int index
-                                property var account: root.quotaAccounts.find(a => String(a.id) === String(modelData)) || ({name:"",provider:"",windows:[],status:"ok"})
-                                property int revealStage: root.drawerStages.accounts[index] || 2
-                                property var session: root.windowFor(account, 300)
-                                property var week: root.windowFor(account, 10080)
-                                property real sessionLeft: root.remaining(session)
-                                property real weekLeft: root.remaining(week)
-                                property real sessionSweep: Math.max(0, sessionLeft)
-                                property real weekSweep: Math.max(0, weekLeft)
-                                Behavior on sessionSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.Linear } }
-                                Behavior on weekSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.Linear } }
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 100
-                                Layout.preferredWidth: 132
-                                implicitHeight: ringContent.implicitHeight + 20
-                                radius: prefs.cardRadius; color: root.cardColor
-                                opacity: root.stagger(revealStage)
-                                transform: Translate { y: (1 - ringCard.opacity) * 4 }
-                                ColumnLayout {
-                                    id: ringContent
-                                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-                                    anchors.margins: 10; spacing: 4
-                                    RowLayout {
-                                        id: ringHeading
-                                        opacity: root.stagger(ringCard.revealStage + 1)
-                                        transform: Translate { y: (1 - ringHeading.opacity) * 4 }
-                                        Layout.fillWidth: true; spacing: 6
-                                        ProviderIcon { Layout.preferredWidth: 23; Layout.preferredHeight: 23; name: root.logo(ringCard.account.provider) }
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
-                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.account.name; font.weight: Font.DemiBold; font.pixelSize: 12 }
-                                            MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.account.provider; color: root.muted; font.pixelSize: 10 }
-                                        }
-                                    }
-                                    Item {
-                                        id: ringFace
-                                        opacity: root.stagger(ringCard.revealStage + 2)
-                                        // Never let the layout independently stretch the two axes.
-                                        property real diameter: Math.max(1, Math.min(root.quotaAccounts.length === 1 ? 124 : 116, Math.floor(ringCard.width - 20)))
-                                        property real strokeSize: diameter * 0.05
-                                        property real outerRadius: diameter * 0.40
-                                        property real innerRadius: diameter * (37 / 120)
-                                        MotionValue { id: ringFill; targetValue: root.opened && ringFace.visible && ringFace.opacity > 0.15 ? 1 : 0; dataMotion: true; animateInitial: true; factor: 0.8; curve: Easing.Linear }
-                                        property real drawProgress: ringFill.value
-                                        implicitWidth: diameter
-                                        implicitHeight: diameter
-                                        Layout.alignment: Qt.AlignHCenter
-                                        Layout.fillWidth: false
-                                        Layout.fillHeight: false
-                                        Layout.minimumWidth: diameter
-                                        Layout.preferredWidth: diameter
-                                        Layout.maximumWidth: diameter
-                                        Layout.minimumHeight: diameter
-                                        Layout.preferredHeight: diameter
-                                        Layout.maximumHeight: diameter
-                                        Shape {
-                                            anchors.fill: parent
-                                            preferredRendererType: Shape.CurveRenderer
-                                            ShapePath {
-                                                fillColor: "transparent"; strokeColor: root.track
-                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
-                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 360 }
-                                            }
-                                            ShapePath {
-                                                fillColor: "transparent"; strokeColor: root.track
-                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
-                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 360 }
-                                            }
-                                            ShapePath {
-                                                fillColor: "transparent"; strokeColor: ringCard.sessionSweep > 0 && ringFace.drawProgress > 0 ? root.sessionColor : "transparent"
-                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
-                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 3.6 * ringCard.sessionSweep * ringFace.drawProgress }
-                                            }
-                                            ShapePath {
-                                                fillColor: "transparent"; strokeColor: ringCard.weekSweep > 0 && ringFace.drawProgress > 0 ? root.weeklyColor : "transparent"
-                                                strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
-                                                PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 3.6 * ringCard.weekSweep * ringFace.drawProgress }
-                                            }
-                                        }
-                                        // Fit both lines inside the inner circle, including 100%,
-                                        // wide user-selected fonts and narrow multi-account cards.
-                                        Column {
-                                            id: weeklyCentre
-                                            anchors.centerIn: parent
-                                            width: Math.floor(ringFace.diameter * 0.43)
-                                            spacing: Math.max(1, Math.round(ringFace.diameter * 0.012))
-                                            HoverHandler { id: weeklyResetHover }
-                                            QuotaHint {
-                                                id: weeklyResetPeek
-                                                parent: weeklyCentre
-                                                visible: root.opened && weeklyResetHover.hovered && ringFace.opacity > 0.99
-                                                text: root.resetText(ringCard.week ? ringCard.week.reset : null)
-                                                x: (parent.width - width) / 2
-                                                y: -height - 8
-                                            }
-                                            MText {
-                                                width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.19))
-                                                horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                                                text: ringCard.weekLeft < 0 ? "—" : Math.round(ringCard.weekLeft) + "%"
-                                                font.weight: Font.DemiBold
-                                                font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.17))
-                                                minimumPixelSize: 4; fontSizeMode: Text.Fit
-                                                wrapMode: Text.NoWrap; color: root.foreground
-                                            }
-                                            MText {
-                                                width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.105))
-                                                horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                                                text: "Weekly"; font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.078))
-                                                minimumPixelSize: 4; fontSizeMode: Text.Fit; wrapMode: Text.NoWrap; color: root.muted
-                                            }
-                                        }
-                                    }
-                                    // Align labels and values like the website preview; keep
-                                    // reset text subordinate rather than splitting it into a third row.
-                                    Repeater {
-                                        model: [
-                                            { label: "Session", value: ringCard.sessionLeft, quota: ringCard.session, tint: root.sessionColor }
-                                        ].concat(root.extraWindows(ringCard.account).map(w => ({label:root.windowLabel(w),value:root.remaining(w),quota:w,tint:root.weeklyColor})))
-                                        delegate: RowLayout {
-                                            required property var modelData
-                                            required property int index
-                                            opacity: root.stagger(ringCard.revealStage + 3 + index)
-                                            Layout.fillWidth: true; spacing: 6
-                                            ColumnLayout {
-                                                Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                                MText { Layout.fillWidth: true; text: modelData.label; color: root.muted; font.pixelSize: 11; elide: Text.ElideRight }
-                                                MText {
-                                                    visible: modelData.quota !== null
-                                                    Layout.fillWidth: true; font.pixelSize: 10; color: root.muted; elide: Text.ElideRight
-                                                    text: root.resetText(modelData.quota ? modelData.quota.reset : null) + (modelData.quota && modelData.quota.shared ? " · Shared budget" : "")
-                                                }
-                                            }
-                                            MText {
-                                                text: modelData.quota ? root.windowValue(modelData.quota) : "—"
-                                                color: modelData.tint; font.family: root.monoFont; font.pixelSize: 12
-                                                font.weight: Font.DemiBold
-                                            }
-                                        }
-                                    }
-                                    MText { opacity: root.stagger(ringCard.revealStage + 4 + root.extraWindows(ringCard.account).length); visible: ringCard.account.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; wrapMode: Text.WordWrap; text: root.accountStatus(ringCard.account) }
-                                }
-                            }
-                        }
-                    }
-                    Repeater {
-                        model: root.compactAccounts
-                        delegate: Rectangle {
-                            id: apiKeyCard
-                            required property var modelData
-                            required property int index
-                            property int revealStage: root.drawerStages.accounts[root.quotaAccounts.length + index] || 2
-                            Layout.fillWidth: true
-                            implicitHeight: compactContent.implicitHeight + 26
-                            radius: Math.min(18,prefs.cardRadius); color: root.cardColor
-                            opacity: root.stagger(revealStage)
-                            transform: Translate { y: (1 - apiKeyCard.opacity) * 4 }
-                            ColumnLayout {
-                                id: compactContent
-                                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 13
-                                spacing: 8
-                                RowLayout {
-                                    id: apiKeyDetails
-                                    Layout.fillWidth: true
-                                    spacing: 10
-                                    ProviderIcon {
-                                        Layout.preferredWidth: 28; Layout.preferredHeight: 28
-                                        name: root.logo(apiKeyCard.modelData.provider)
-                                        opacity: root.stagger(apiKeyCard.revealStage + 1)
-                                    }
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
-                                        opacity: root.stagger(apiKeyCard.revealStage + 1)
-                                        MText { text: apiKeyCard.modelData.provider; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                                        MText { text: apiKeyCard.modelData.name; font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
-                                    }
-                                    ColumnLayout {
-                                        spacing: 3; opacity: root.stagger(apiKeyCard.revealStage + 2)
-                                        MText { text: root.compactTitle(apiKeyCard.modelData); visible: text.length > 0; font.pixelSize: 11; font.weight: Font.Medium; color: root.foreground; Layout.alignment: Qt.AlignRight }
-                                        MText { text: root.compactValue(apiKeyCard.modelData); font.pixelSize: 10; color: root.muted; Layout.alignment: Qt.AlignRight }
-                                    }
-                                }
-                                AccountUsageReading { visible: apiKeyCard.modelData.authKind !== "free" && !(apiKeyCard.modelData.windows || []).length && (!root.usageReady || root.hasUsageData(root.accountUsage(apiKeyCard.modelData))); account: apiKeyCard.modelData; compact: true; opacity: root.stagger(apiKeyCard.revealStage + 2) }
-                                FreeModelActivity { visible: apiKeyCard.modelData.authKind === "free"; account: apiKeyCard.modelData; opacity: root.stagger(apiKeyCard.revealStage + 2) }
-                                Repeater {
-                                    model: apiKeyCard.modelData.windows || []
-                                    delegate: ColumnLayout {
-                                        required property var modelData
-                                        required property int index
-                                        Layout.fillWidth: true; spacing: 4
-                                        opacity: root.stagger(apiKeyCard.revealStage + 3 + index)
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            MText { text: root.windowLabel(modelData); font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
-                                            MText { text: root.windowValue(modelData); font.pixelSize: 11; font.family: root.monoFont }
-                                        }
-                                        Rectangle { Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: root.track
-                                            Rectangle { width: parent.width * Math.max(0,root.remaining(modelData))/100; height: parent.height; radius: 2; color: root.primary }
-                                        }
-                                        MText { text: root.resetText(modelData.reset) + (modelData.shared ? " · Shared budget" : ""); font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
-                                    }
-                                }
-                            }
-                            HoverHandler { id: compactHover }
-                            QuotaHint { parent: apiKeyCard; visible: root.opened && compactHover.hovered && apiKeyCard.modelData.authKind === "free"; text: root.compactHint(apiKeyCard.modelData); y: -height - 8; x: (parent.width-width)/2 }
                         }
                     }
                     RowLayout {
@@ -1425,8 +1228,9 @@ ShellRoot {
                         opacity: root.stagger(root.drawerStages.footer)
                         transform: Translate { y: (1 - footer.opacity) * 4 }
                         Layout.fillWidth: true; spacing: 6
-                        Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.muted }
-                        MText { text: "Local cache"; color: root.muted; font.pixelSize: 11 }
+                        LoadingIndicator { Layout.preferredWidth: 12; Layout.preferredHeight: 12; active: root.localDataLoading; visible: active }
+                        Rectangle { visible: !root.localDataLoading; Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.muted }
+                        MText { text: root.localDataLoading ? root.loadingMessage : root.analyticsError ? "Usage refresh failed" : "Local cache"; color: root.muted; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight }
                         Item { Layout.fillWidth: true }
                         MText { text: root.status; color: root.muted; font.pixelSize: 11; elide: Text.ElideRight; Layout.maximumWidth: scroll.width * 0.52 }
                     }
@@ -1434,6 +1238,272 @@ ShellRoot {
             }
             ScrollFade { anchors.fill: scroll; viewport: scroll }
         }
+    }
+    component DrawerQuotaCard: Rectangle {
+        id: accountCard
+        required property var modelData
+        required property int index
+        objectName: "drawer-account-" + (typeof modelData === "string" ? modelData : modelData.id)
+        property int revealStage: root.drawerStages.accounts[index] || 2
+        property int detailStage: revealStage + 2 + (modelData.status !== "ok" ? 1 : 0)
+        opacity: root.stagger(revealStage)
+        transform: Translate { y: (1 - accountCard.opacity) * 4 }
+        Layout.fillWidth: true
+        implicitHeight: card.implicitHeight + 28
+        radius: prefs.cardRadius; color: root.cardColor
+        ColumnLayout {
+            id: card
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 14
+            spacing: 12
+            RowLayout {
+                id: accountHeading
+                opacity: root.stagger(accountCard.revealStage + 1)
+                transform: Translate { y: (1 - accountHeading.opacity) * 4 }
+                Layout.fillWidth: true; spacing: 6
+                Rectangle {
+                    Layout.preferredWidth: 36; Layout.preferredHeight: 36
+                    radius: 13; color: root.buttonColor
+                    ProviderIcon { anchors.centerIn: parent; width: 20; height: 20; name: root.logo(accountCard.modelData.provider) }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
+                    MText { text: accountCard.modelData.provider; font.weight: Font.DemiBold; font.pixelSize: 15; Layout.fillWidth: true; elide: Text.ElideRight }
+                    MText { text: accountCard.modelData.name; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                }
+            }
+            MText { opacity: root.stagger(accountCard.revealStage + 2); visible: accountCard.modelData.status !== "ok"; text: root.accountStatus(accountCard.modelData); color: root.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            Repeater {
+                model: accountCard.modelData.windows || []
+                delegate: ColumnLayout {
+                    required property var modelData
+                    id: quota
+                    property bool known: modelData.remaining !== null && modelData.remaining !== undefined && isFinite(Number(modelData.remaining))
+                    property real remaining: known ? Math.max(0, Math.min(100, Number(modelData.remaining))) : 0
+                    property color indicator: known && remaining < 20 ? root.danger : root.primary
+                    required property int index
+                    opacity: root.stagger(accountCard.detailStage + index)
+                    transform: Translate { y: (1 - quota.opacity) * 4 }
+                    MotionValue { id: quotaFill; targetValue: root.opened && quota.opacity > 0.15 ? 1 : 0; dataMotion: true; animateInitial: quota.opacity < 1; factor: 0.75; curve: Easing.InOutCubic }
+                    Layout.fillWidth: true; spacing: 6
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 6
+                        MText { text: root.windowLabel(quota.modelData); font.pixelSize: 12; font.weight: Font.Medium; Layout.fillWidth: true }
+                        MText { text: root.windowValue(quota.modelData); color: quota.indicator; font.family: root.monoFont; font.pixelSize: 17; font.weight: Font.DemiBold; Layout.alignment: Qt.AlignRight }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true; implicitHeight: 6; radius: 3; color: root.track
+                        Rectangle { property real displayedQuota: quota.remaining; Behavior on displayedQuota { NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.InOutCubic } } width: parent.width * displayedQuota / 100 * quotaFill.value; height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator }
+                    }
+                    MText { text: quota.known ? root.resetText(quota.modelData.reset) : "Quota unavailable"; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                }
+            }
+        }
+    }
+    component DrawerRingCard: Rectangle {
+        id: ringCard
+        required property var modelData
+        required property int index
+        property var account: root.quotaAccounts.find(a => String(a.id) === String(modelData)) || ({name:"",provider:"",windows:[],status:"ok"})
+        objectName: "drawer-account-" + (typeof modelData === "string" ? modelData : modelData.id)
+        property int revealStage: root.drawerStages.accounts[index] || 2
+        property var session: root.windowFor(account, 300)
+        property var week: root.windowFor(account, 10080)
+        property real sessionLeft: root.remaining(session)
+        property real weekLeft: root.remaining(week)
+        property real sessionSweep: Math.max(0, sessionLeft)
+        property real weekSweep: Math.max(0, weekLeft)
+        Behavior on sessionSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.Linear } }
+        Behavior on weekSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.Linear } }
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 132
+        implicitHeight: ringContent.implicitHeight + 20
+        radius: prefs.cardRadius; color: root.cardColor
+        opacity: root.stagger(revealStage)
+        transform: Translate { y: (1 - ringCard.opacity) * 4 }
+        ColumnLayout {
+            id: ringContent
+            anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+            anchors.margins: 10; spacing: 4
+            RowLayout {
+                id: ringHeading
+                opacity: root.stagger(ringCard.revealStage + 1)
+                transform: Translate { y: (1 - ringHeading.opacity) * 4 }
+                Layout.fillWidth: true; spacing: 6
+                ProviderIcon { Layout.preferredWidth: 23; Layout.preferredHeight: 23; name: root.logo(ringCard.account.provider) }
+                ColumnLayout {
+                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
+                    MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.account.name; font.weight: Font.DemiBold; font.pixelSize: 12 }
+                    MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.account.provider; color: root.muted; font.pixelSize: 10 }
+                }
+            }
+            Item {
+                id: ringFace
+                opacity: root.stagger(ringCard.revealStage + 2)
+                // Never let the layout independently stretch the two axes.
+                property real diameter: Math.max(1, Math.min(root.quotaAccounts.length === 1 ? 124 : 116, Math.floor(ringCard.width - 20)))
+                property real strokeSize: diameter * 0.05
+                property real outerRadius: diameter * 0.40
+                property real innerRadius: diameter * (37 / 120)
+                MotionValue { id: ringFill; targetValue: root.opened && ringFace.visible && ringFace.opacity > 0.15 ? 1 : 0; dataMotion: true; animateInitial: true; factor: 0.8; curve: Easing.Linear }
+                property real drawProgress: ringFill.value
+                implicitWidth: diameter
+                implicitHeight: diameter
+                Layout.alignment: Qt.AlignHCenter
+                Layout.fillWidth: false
+                Layout.fillHeight: false
+                Layout.minimumWidth: diameter
+                Layout.preferredWidth: diameter
+                Layout.maximumWidth: diameter
+                Layout.minimumHeight: diameter
+                Layout.preferredHeight: diameter
+                Layout.maximumHeight: diameter
+                Shape {
+                    anchors.fill: parent
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        fillColor: "transparent"; strokeColor: root.track
+                        strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                        PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 360 }
+                    }
+                    ShapePath {
+                        fillColor: "transparent"; strokeColor: root.track
+                        strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                        PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 360 }
+                    }
+                    ShapePath {
+                        fillColor: "transparent"; strokeColor: ringCard.sessionSweep > 0 && ringFace.drawProgress > 0 ? root.sessionColor : "transparent"
+                        strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                        PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.outerRadius; radiusY: ringFace.outerRadius; startAngle: 270; sweepAngle: 3.6 * ringCard.sessionSweep * ringFace.drawProgress }
+                    }
+                    ShapePath {
+                        fillColor: "transparent"; strokeColor: ringCard.weekSweep > 0 && ringFace.drawProgress > 0 ? root.weeklyColor : "transparent"
+                        strokeWidth: ringFace.strokeSize; capStyle: ShapePath.RoundCap
+                        PathAngleArc { centerX: ringFace.diameter/2; centerY: ringFace.diameter/2; radiusX: ringFace.innerRadius; radiusY: ringFace.innerRadius; startAngle: 270; sweepAngle: 3.6 * ringCard.weekSweep * ringFace.drawProgress }
+                    }
+                }
+                // Fit both lines inside the inner circle, including 100%,
+                // wide user-selected fonts and narrow multi-account cards.
+                Column {
+                    id: weeklyCentre
+                    anchors.centerIn: parent
+                    width: Math.floor(ringFace.diameter * 0.43)
+                    spacing: Math.max(1, Math.round(ringFace.diameter * 0.012))
+                    HoverHandler { id: weeklyResetHover }
+                    QuotaHint {
+                        id: weeklyResetPeek
+                        parent: weeklyCentre
+                        visible: root.opened && weeklyResetHover.hovered && ringFace.opacity > 0.99
+                        text: root.resetText(ringCard.week ? ringCard.week.reset : null)
+                        x: (parent.width - width) / 2
+                        y: -height - 8
+                    }
+                    MText {
+                        width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.19))
+                        horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                        text: ringCard.weekLeft < 0 ? "—" : Math.round(ringCard.weekLeft) + "%"
+                        font.weight: Font.DemiBold
+                        font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.17))
+                        minimumPixelSize: 4; fontSizeMode: Text.Fit
+                        wrapMode: Text.NoWrap; color: root.foreground
+                    }
+                    MText {
+                        width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.105))
+                        horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                        text: "Weekly"; font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.078))
+                        minimumPixelSize: 4; fontSizeMode: Text.Fit; wrapMode: Text.NoWrap; color: root.muted
+                    }
+                }
+            }
+            // Align labels and values like the website preview; keep
+            // reset text subordinate rather than splitting it into a third row.
+            Repeater {
+                model: [
+                    { label: "Session", value: ringCard.sessionLeft, quota: ringCard.session, tint: root.sessionColor }
+                ].concat(root.extraWindows(ringCard.account).map(w => ({label:root.windowLabel(w),value:root.remaining(w),quota:w,tint:root.weeklyColor})))
+                delegate: RowLayout {
+                    required property var modelData
+                    required property int index
+                    opacity: root.stagger(ringCard.revealStage + 3 + index)
+                    Layout.fillWidth: true; spacing: 6
+                    ColumnLayout {
+                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                        MText { Layout.fillWidth: true; text: modelData.label; color: root.muted; font.pixelSize: 11; elide: Text.ElideRight }
+                        MText {
+                            visible: modelData.quota !== null
+                            Layout.fillWidth: true; font.pixelSize: 10; color: root.muted; elide: Text.ElideRight
+                            text: root.resetText(modelData.quota ? modelData.quota.reset : null) + (modelData.quota && modelData.quota.shared ? " · Shared budget" : "")
+                        }
+                    }
+                    MText {
+                        text: modelData.quota ? root.windowValue(modelData.quota) : "—"
+                        color: modelData.tint; font.family: root.monoFont; font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+                }
+            }
+            MText { opacity: root.stagger(ringCard.revealStage + 4 + root.extraWindows(ringCard.account).length); visible: ringCard.account.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; wrapMode: Text.WordWrap; text: root.accountStatus(ringCard.account) }
+        }
+    }
+    component DrawerUsageCard: Rectangle {
+        id: apiKeyCard
+        required property var modelData
+        required property int index
+        objectName: "drawer-account-" + (typeof modelData === "string" ? modelData : modelData.id)
+        property int revealStage: root.drawerStages.accounts[index] || 2
+        Layout.fillWidth: true
+        implicitHeight: compactContent.implicitHeight + 26
+        radius: Math.min(18,prefs.cardRadius); color: root.cardColor
+        opacity: root.stagger(revealStage)
+        transform: Translate { y: (1 - apiKeyCard.opacity) * 4 }
+        ColumnLayout {
+            id: compactContent
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 13
+            spacing: 8
+            RowLayout {
+                id: apiKeyDetails
+                Layout.fillWidth: true
+                spacing: 7
+                ProviderIcon {
+                    Layout.preferredWidth: 22; Layout.preferredHeight: 22
+                    name: root.logo(apiKeyCard.modelData.provider)
+                    opacity: root.stagger(apiKeyCard.revealStage + 1)
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
+                    opacity: root.stagger(apiKeyCard.revealStage + 1)
+                    MText { text: apiKeyCard.width < 240 ? apiKeyCard.modelData.name : apiKeyCard.modelData.provider; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                    MText { text: apiKeyCard.width < 240 ? apiKeyCard.modelData.provider + (apiKeyCard.modelData.authKind === "free" ? " · " + root.compactValue(apiKeyCard.modelData) : root.authLabel(apiKeyCard.modelData) ? " · " + root.authLabel(apiKeyCard.modelData) : "") : apiKeyCard.modelData.name; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                }
+                ColumnLayout {
+                    spacing: 3; opacity: root.stagger(apiKeyCard.revealStage + 2)
+                    MText { visible: apiKeyCard.width >= 240 && text.length > 0; text: root.compactTitle(apiKeyCard.modelData); font.pixelSize: 11; font.weight: Font.Medium; color: root.foreground; Layout.alignment: Qt.AlignRight }
+                    MText { visible: apiKeyCard.width >= 240; text: root.compactValue(apiKeyCard.modelData); font.pixelSize: 10; color: root.muted; Layout.alignment: Qt.AlignRight }
+                }
+            }
+            AccountUsageReading { visible: apiKeyCard.modelData.authKind !== "free" && !(apiKeyCard.modelData.windows || []).length && (!root.usageReady || root.hasUsageData(root.accountUsage(apiKeyCard.modelData))); account: apiKeyCard.modelData; compact: true; opacity: root.stagger(apiKeyCard.revealStage + 2) }
+            FreeModelActivity { compact: true; visible: apiKeyCard.modelData.authKind === "free"; account: apiKeyCard.modelData; opacity: root.stagger(apiKeyCard.revealStage + 2) }
+            Repeater {
+                model: apiKeyCard.modelData.windows || []
+                delegate: ColumnLayout {
+                    required property var modelData
+                    required property int index
+                    Layout.fillWidth: true; spacing: 4
+                    opacity: root.stagger(apiKeyCard.revealStage + 3 + index)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        MText { text: root.windowLabel(modelData); font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                        MText { text: root.windowValue(modelData); font.pixelSize: 11; font.family: root.monoFont }
+                    }
+                    Rectangle { Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: root.track
+                        Rectangle { width: parent.width * Math.max(0,root.remaining(modelData))/100; height: parent.height; radius: 2; color: root.primary }
+                    }
+                    MText { text: root.resetText(modelData.reset) + (modelData.shared ? " · Shared budget" : ""); font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
+                }
+            }
+        }
+        HoverHandler { id: compactHover }
+        QuotaHint { parent: apiKeyCard; visible: root.opened && compactHover.hovered && apiKeyCard.modelData.authKind === "free"; text: root.compactHint(apiKeyCard.modelData); y: -height - 8; x: (parent.width-width)/2 }
     }
     component Choice: Rectangle {
         id: choice
@@ -1681,21 +1751,27 @@ ShellRoot {
         id: accountReading
         required property var account
         property bool compact: false
+        property bool narrow: compact && width < 220
         property var usage: root.accountUsage(account)
         Layout.fillWidth: true; spacing: 7
-        RowLayout {
+        GridLayout {
             visible: !!accountReading.usage.available
-            Layout.fillWidth: true; spacing: 16
-            ColumnLayout {
-                Layout.fillWidth: true; spacing: 3
-                MText { text: root.countText((accountReading.usage.totals || {}).totalTokens); font.pixelSize: accountReading.compact ? 18 : 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                MText { text: (accountReading.usage.totals || {}).tokensComplete === false ? "Known tokens" : "Tokens"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true }
+            columns: accountReading.narrow ? 1 : 2; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 4
+            Repeater {
+                model: [{value:root.countText((accountReading.usage.totals || {}).totalTokens),label:(accountReading.usage.totals || {}).tokensComplete === false ? "Known tokens" : "Tokens"}, {value:root.usageCost(accountReading.usage.totals || {}),label:(accountReading.usage.totals || {}).costComplete === false ? "Known cost" : "Usage cost"}]
+                delegate: GridLayout {
+                    required property var modelData
+                    columns: accountReading.narrow ? 2 : 1; Layout.fillWidth: true; columnSpacing: 6; rowSpacing: 3
+                    MText { text: modelData.value; font.pixelSize: accountReading.narrow ? 14 : accountReading.compact ? 18 : 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                    MText { text: modelData.label; font.pixelSize: 10; color: root.muted; Layout.fillWidth: !accountReading.narrow }
+                }
             }
-            ColumnLayout {
-                Layout.fillWidth: true; spacing: 3
-                MText { text: root.usageCost(accountReading.usage.totals || {}); font.pixelSize: accountReading.compact ? 18 : 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                MText { text: (accountReading.usage.totals || {}).costComplete === false ? "Known usage cost" : "Usage cost"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true }
-            }
+        }
+        ColumnLayout {
+            visible: !accountReading.usage.available && !root.usageReady
+            Layout.fillWidth: true; spacing: 7
+            SkeletonLine { Layout.fillWidth: true; implicitHeight: 15 }
+            SkeletonLine { Layout.preferredWidth: parent.width*0.65; implicitHeight: 9 }
         }
         MText {
             visible: !!accountReading.usage.available
@@ -1703,18 +1779,19 @@ ShellRoot {
             font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
         }
         MText {
-            visible: !accountReading.usage.available
-            text: !root.usageReady ? "Reading local usage…" : "No local usage recorded for this period."
+            visible: !accountReading.usage.available && root.usageReady
+            text: root.analyticsError ? "Local usage unavailable." : "No local usage recorded for this period."
             font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
         }
     }
     component FreeModelActivity: ColumnLayout {
         id: freeActivity
+        property bool compact: false
         required property var account
         Layout.fillWidth: true; spacing: 7
         AccountUsageReading { account: freeActivity.account; compact: true }
         Repeater {
-            model: root.freeLimitModels(freeActivity.account).slice(0,2)
+            model: root.freeLimitModels(freeActivity.account).slice(0,freeActivity.compact ? 1 : 2)
             delegate: ColumnLayout {
                 required property var modelData
                 Layout.fillWidth: true; spacing: 2
@@ -1725,7 +1802,7 @@ ShellRoot {
         MText { text: freeActivity.account.observationsStatus === "unavailable" ? "Limit history unavailable" : "Free allowance remaining is unknown"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
         Button {
             id: usageButton
-            implicitWidth: 104; implicitHeight: 28
+            implicitWidth: 96; implicitHeight: freeActivity.compact ? 24 : 28
             hoverEnabled: true; focusPolicy: Qt.StrongFocus
             Accessible.name: "View OpenCode usage"
             onClicked: root.openSettings("Analytics")
@@ -1741,10 +1818,10 @@ ShellRoot {
         property bool hasLimits: (account.windows || []).length>0
         property bool hasData: hasLimits || root.hasUsageData(usage)
         Layout.fillWidth: true; Layout.fillHeight: true
-        implicitHeight: Math.max(sharedUsage ? 76 : 156,overviewDetails.implicitHeight+26); radius: 18; color: root.cardColor
+        implicitHeight: Math.max(sharedUsage ? 64 : hasLimits ? 140 : 88,overviewDetails.implicitHeight+24); radius: 18; color: root.cardColor
         ColumnLayout {
             id: overviewDetails
-            anchors.fill: parent; anchors.margins: 13; spacing: 8
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12; spacing: 8
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
                 ProviderIcon { name: root.logo(overviewAccount.account.provider); Layout.preferredWidth: 22; Layout.preferredHeight: 22 }
@@ -1752,7 +1829,7 @@ ShellRoot {
                 MText { text: root.authLabel(overviewAccount.account); color: root.muted; font.pixelSize: 10 }
             }
             MText {
-                text: !overviewAccount.hasData ? (overviewAccount.account.status === "login_required" ? "Sign in again for limits" : "No local usage or limits") : root.accountSummary(overviewAccount.account)
+                text: !root.usageReady ? root.accountSummary(overviewAccount.account) : !overviewAccount.hasData ? (overviewAccount.account.status === "login_required" ? "Sign in again for limits" : "No local usage or limits") : root.accountSummary(overviewAccount.account)
                 font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
             }
             GridLayout {
@@ -1776,17 +1853,8 @@ ShellRoot {
                     }
                 }
             }
-            Item { Layout.fillHeight: true }
-            RowLayout {
-                visible: !overviewAccount.sharedUsage && (root.hasUsageData(overviewAccount.usage) || !overviewAccount.hasLimits)
-                Layout.fillWidth: true; spacing: 10
-                MText { text: (root.hasUsageData(overviewAccount.usage) ? root.countText(overviewAccount.usage.totals.totalTokens) : "—")+((overviewAccount.usage.totals || {}).tokensComplete === false ? " known tokens" : " tokens"); font.pixelSize: 19; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                MText { text: root.usageCost(overviewAccount.usage.totals || {}); font.pixelSize: 18; font.weight: Font.Medium }
-            }
-            MText {
-                visible: !overviewAccount.sharedUsage; Layout.preferredHeight: 12
-                text: root.hasUsageData(overviewAccount.usage) ? overviewAccount.usage.scope || "Local usage" : ""; Layout.fillWidth: true; elide: Text.ElideRight; font.pixelSize: 10; color: root.muted
-            }
+            AccountUsageReading { visible: !overviewAccount.sharedUsage && (root.hasUsageData(overviewAccount.usage) || !overviewAccount.hasLimits || !root.usageReady); account: overviewAccount.account; usage: overviewAccount.usage; compact: true }
+
         }
     }
     component OverviewAccountGroup: ColumnLayout {
@@ -1875,15 +1943,15 @@ ShellRoot {
         Rectangle {
             id: settingsBody
             anchors.centerIn: parent
-            width: settingsPanel.width
-            height: settingsPanel.height
-            scale: 0.985 + 0.015*root.settingsReveal
-            transformOrigin: Item.TopRight
-            radius: 30; color: root.surface
+            anchors.alignWhenCentered: false
+            width: 40 + (settingsPanel.width-40)*root.settingsReveal
+            height: 40 + (settingsPanel.height-40)*root.settingsReveal
+            transform: Scale { origin.x: settingsBody.width/2; origin.y: settingsBody.height/2; xScale: 1+root.surfaceBounce(settingsSpring.value,settingsPanel.width,settingsPanel.height); yScale: xScale }
+            radius: Math.min(30,width/2,height/2); color: root.surface
 
             clip: true
-            opacity: root.settingsReveal
-            visible: root.settingsReveal > 0.0001
+            opacity: root.smooth(settingsSpring.value / 0.14)
+            visible: root.settingsOpen || settingsSpring.value > 0.0001
             enabled: root.settingsOpen
             // Local shortcuts are active only when the settings window has focus.
             Shortcut { sequence: "Escape"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.dismissAll() }
@@ -1898,8 +1966,9 @@ ShellRoot {
             Shortcut { sequence: "Ctrl+R"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.refreshView() }
             RowLayout {
                 anchors.centerIn: parent
+                anchors.alignWhenCentered: false
                 width: Math.max(1,settingsPanel.width-24); height: Math.max(1,settingsPanel.height-24)
-                opacity: root.smooth((settingsContentSpring.value-0.12)/0.68)
+                opacity: root.settingsContentReveal
                 enabled: root.settingsOpen && opacity > 0.65
                 spacing: 0
                 Rectangle {
@@ -1963,13 +2032,15 @@ ShellRoot {
                         Layout.fillWidth: true
                         Item {
                             id: pageHeading
-                            Layout.fillWidth: true; implicitHeight: headingLabel.implicitHeight
+                            property bool usagePage: ["Overview","Providers","Analytics"].includes(root.settingsTab)
+                            Layout.fillWidth: true; implicitHeight: headingLabel.implicitHeight + (usagePage ? 22 : 0)
                             MText {
                                 id: headingLabel; text: root.settingsTab; width: pageHeading.width
                                 font.pixelSize: 31; font.weight: Font.DemiBold; font.letterSpacing: -1; elide: Text.ElideRight
                                 opacity: root.pageStage(0)
                                 transform: ItemGrowth { stage: root.pageStage(0) }
                             }
+                            LoadingStatus { anchors.left: parent.left; anchors.right: parent.right; anchors.top: headingLabel.bottom; anchors.topMargin: 4; visible: pageHeading.usagePage; active: root.localDataLoading; text: root.loadingMessage; opacity: root.pageStage(0) }
                         }
                         Choice { label: "Done"; onChosen: root.settingsOpen = false }
                     }
@@ -1997,7 +2068,7 @@ ShellRoot {
                                     ColumnLayout {
                                         Layout.fillWidth: true; spacing: 5
                                         MText { text: root.overviewHeading; font.pixelSize: 23; font.weight: Font.DemiBold; Layout.fillWidth: true; wrapMode: Text.WordWrap }
-                                        Description { text: root.quotaAccountCount+" reporting limits · "+root.overviewClients.length+" with local usage"; font.pixelSize: 12 }
+                                        Description { text: root.quotaAccountCount+" reporting limits"+(root.usageReady ? " · "+root.overviewClients.length+" with local usage" : ""); font.pixelSize: 12 }
                                         MText { visible: root.attentionAccountCount>0; text: root.attentionAccountCount+" "+(root.attentionAccountCount===1?"account needs":"accounts need")+" attention"; color: root.primary; font.pixelSize: 12; Layout.fillWidth: true }
                                     }
                                 }
@@ -2018,21 +2089,21 @@ ShellRoot {
                                             ColumnLayout {
                                                 Layout.fillWidth: true; spacing: 4
                                                 Description { text: root.overviewTotals.tokensComplete ? "Tokens" : "Known tokens"; font.pixelSize: 12 }
-                                                MText { text: root.overviewClients.length ? root.countText(root.overviewTotals.totalTokens) : "—"; font.pixelSize: 38; font.weight: Font.DemiBold; font.letterSpacing: -1; Layout.fillWidth: true; elide: Text.ElideRight }
+                                                Item { Layout.fillWidth: true; implicitHeight: 46; MText { visible: root.usageReady; text: root.overviewClients.length ? root.countText(root.overviewTotals.totalTokens) : "—"; font.pixelSize: 38; font.weight: Font.DemiBold; font.letterSpacing: -1; width: parent.width; elide: Text.ElideRight } SkeletonLine { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; width: Math.min(parent.width*0.72,150); height: 26; visible: !root.usageReady } }
                                             }
                                             ColumnLayout {
                                                 Layout.fillWidth: true; spacing: 4
                                                 Description { text: root.overviewTotals.costComplete ? "Usage cost" : "Known usage cost"; font.pixelSize: 12 }
-                                                MText { text: root.overviewClients.length ? root.usageCost(root.overviewTotals) : "—"; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -1; Layout.fillWidth: true; elide: Text.ElideRight }
+                                                Item { Layout.fillWidth: true; implicitHeight: 46; MText { visible: root.usageReady; text: root.overviewClients.length ? root.usageCost(root.overviewTotals) : "—"; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -1; width: parent.width; elide: Text.ElideRight } SkeletonLine { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; width: Math.min(parent.width*0.72,150); height: 26; visible: !root.usageReady } }
                                             }
                                         }
                                         Flow {
                                             Layout.fillWidth: true; spacing: 14
-                                            MText { text: root.countText(root.overviewTotals.inputTokens)+" input"; font.pixelSize: 12; color: root.muted }
-                                            MText { text: root.overviewTotals.tokensComplete ? root.countText(root.overviewTotals.outputTokens)+" output" : "Output partly unavailable"; font.pixelSize: 12; color: root.muted }
-                                            MText { text: root.countText(root.overviewTotals.cachedInputTokens)+" cached"; font.pixelSize: 12; color: root.muted }
+                                            MText { opacity: root.usageReady ? 1 : 0; text: root.countText(root.overviewTotals.inputTokens)+" input"; font.pixelSize: 12; color: root.muted }
+                                            MText { opacity: root.usageReady ? 1 : 0; text: root.overviewTotals.tokensComplete ? root.countText(root.overviewTotals.outputTokens)+" output" : "Output partly unavailable"; font.pixelSize: 12; color: root.muted }
+                                            MText { opacity: root.usageReady ? 1 : 0; text: root.countText(root.overviewTotals.cachedInputTokens)+" cached"; font.pixelSize: 12; color: root.muted }
                                         }
-                                        Description { text: root.overviewClients.length ? "Recorded and estimated costs. Not a bill." : "No local usage recorded for this period."; font.pixelSize: 11 }
+                                        Description { visible: root.usageReady; text: root.overviewClients.length ? "Recorded and estimated costs. Not a bill." : "No local usage recorded for this period."; font.pixelSize: 11 }
                                     }
                                 }
                                 RowLayout {

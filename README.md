@@ -137,7 +137,7 @@ aether accounts
 aether usage
 ```
 
-Refresh beside Settings and Ctrl+R reread the cache. Providers settings can hide accounts with neither limits nor recorded usage. The daemon queries quota every three minutes. Fullscreen apps suppress the drawer by default; Behaviour → Open in fullscreen enables an override. See [usage and service commands](docs/LINUX.md#phase-4-usage).
+Refresh beside Settings and Ctrl+R reread the local quota cache and usage logs. Providers settings can hide accounts with neither limits nor recorded usage. The daemon queries quota every three minutes. Fullscreen apps suppress the drawer by default; Behaviour → Open in fullscreen enables an override. See [usage and service commands](docs/LINUX.md#phase-4-usage).
 
 ### Release downloads
 

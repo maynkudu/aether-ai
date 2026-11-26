@@ -3,6 +3,7 @@ set -euo pipefail
 test "$(id -u)" -ne 0
 root="$(cd "$(dirname "$0")/.." && pwd)"
 python3 "$root/scripts/test_drawer_motion.py"
+python3 "$root/scripts/test_shell_state.py"
 work="$(mktemp -d)"
 export HOME="$work/home"
 export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_STATE_HOME="$HOME/.local/state" XDG_RUNTIME_DIR="$work/runtime"
