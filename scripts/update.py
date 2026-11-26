@@ -58,13 +58,15 @@ def installed():
 
 def targets():
     return [BIN/"aether", BIN/"aether-update", UNITS/"aether.service",
-            UNITS/"aether-update.service", UNITS/"aether-update.timer", SHELL/"shell.qml"]
+            UNITS/"aether-update.service", UNITS/"aether-update.timer", SHELL/"shell.qml",
+            UNITS/"aether-ui.service"]
 
 def rollback_available():
     try:
         with zipfile.ZipFile(ROLLBACK) as archive:
             meta = json.loads(archive.read("manifest.json"))
-        return meta.get("to") == installed() and bool(SHA.fullmatch(meta.get("from","")))
+        return (meta.get("to") == installed() and bool(SHA.fullmatch(meta.get("from","")))
+                and len(meta.get("files",[])) in {len(targets())-1,len(targets())})
     except (OSError,ValueError,KeyError,zipfile.BadZipFile):
         return False
 
@@ -155,6 +157,8 @@ def restart():
     run(["systemctl","--user","daemon-reload"],stdout=sys.stderr)
     run(["systemctl","--user","restart","aether.service"],stdout=sys.stderr)
     run(["systemctl","--user","is-active","--quiet","aether.service"])
+    if (UNITS/"aether-ui.service").exists():
+        run(["systemctl","--user","try-restart","aether-ui.service"],stdout=sys.stderr)
 
 def save_previous(backup,current,target):
     buf=io.BytesIO()
@@ -172,11 +176,13 @@ def rollback(current):
         meta=json.loads(archive.read("manifest.json"))
         previous=meta.get("from","")
         entries=meta.get("files",[])
-        if meta.get("to")!=current or not SHA.fullmatch(previous) or len(entries)!=len(targets()):
+        if meta.get("to")!=current or not SHA.fullmatch(previous) or len(entries) not in {len(targets())-1,len(targets())}:
             raise RuntimeError("previous build does not match installed commit")
         old=[(dst,archive.read(str(i)) if entries[i]["exists"] else None,
-              int(entries[i]["mode"]) & 0o777) for i,dst in enumerate(targets())]
+              int(entries[i]["mode"]) & 0o777) for i,dst in enumerate(targets()[:len(entries)])]
     current_files=snapshot()
+    # Older rollback archives predate the UI unit; preserve its current setup.
+    old.extend(current_files[len(entries):])
     try:
         restore(old)
         restart()
@@ -208,6 +214,7 @@ def apply(target, current):
             (source/"systemd/aether.service",UNITS/"aether.service",0o644),
             (source/"systemd/aether-update.service",UNITS/"aether-update.service",0o644),
             (source/"systemd/aether-update.timer",UNITS/"aether-update.timer",0o644),
+            (source/"systemd/aether-ui.service",UNITS/"aether-ui.service",0o644),
             (source/"shell/shell.qml",SHELL/"shell.qml",0o644),
         ]
         payload = [(dst,src.read_bytes(),mode) for src,dst,mode in files]
@@ -291,7 +298,7 @@ def main():
             emit("This commit was rolled back; automatic reinstall is paused",channel,target)
             return
         emit("Building update from isolated source…",channel,target,busy=True)
-        emit_install = "Update installed. Reopen aether if its UI has not reloaded."
+        emit_install = "Update installed."
         apply(target,current)
         emit(emit_install,channel,target,available=False)
 

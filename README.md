@@ -9,7 +9,7 @@
 
 **A local-first AI quota monitor, designed to stay out of your way.**
 
-[Website source](apps/web) · [Quick start](#quick-start) · [Features](#features) · [Platforms](#platforms) · [Docs](#documentation) · [Contribute](#contributing)
+[Website source](apps/web) · [Quick start](#quick-start) · [Features](#features) · [Platform](#platform) · [Docs](#documentation) · [Contribute](#contributing)
 
 </div>
 
@@ -39,7 +39,7 @@ Wisp is our little companion for keeping AI quotas in view. The project is still
 | | |
 |---|---|
 | **At-a-glance quotas** — Session and weekly limits, reset information, grid cards and circular gauges. | **Multiple accounts** — Local Codex homes, experimental T3 discovery and independent visibility. |
-| **Local analytics** — Real recorded quota history, line and bar views, 24h–90d ranges. | **Fluid interactions** — Corner-anchored drawer, spring motion, staggered pages, directional dropdowns and scroll fades. |
+| **Local analytics** — Real recorded quota history, line and bar views, 24h–90d ranges. | **Fluid interactions** — Subtle, interruptible transitions, reduced motion, directional dropdowns and scroll fades. |
 | **Personal by design** — Wisp, eight palettes, curated typefaces, configurable hotspots and shortcuts. | **Stay current** — Linux opt-in updates, Stable/Development channels and previous-build rollback. |
 
 ### Appearance
@@ -68,30 +68,79 @@ Artwork and provider visibility entries do not imply working quota integrations.
 
 ## Quick start
 
-### Linux
+Follow these phases on Arch Linux with a working Wayland session. Hyprland is the primary compositor. The [full Linux guide](docs/LINUX.md) includes compositor startup, service controls, logs, updates, and removal.
 
-Requires Wayland, Quickshell with Qt 6.8+ popup APIs, Rust/Cargo, Git, Bash, Python 3.12+, systemd user services and native Codex CLI. Optional: ImageMagick and fontconfig. Hyprland is the primary target; Caelestia is not required.
+### Phase 1: prerequisites
+
+```bash
+sudo pacman -Syu --needed base-devel git curl python util-linux quickshell imagemagick fontconfig
+cargo --version
+rustc --version
+```
+
+If Rust is missing, run `sudo pacman -S --needed rust`. Keep an existing working toolchain. Quickshell needs Qt 6.8 or newer, Python must be 3.12 or newer, and systemd user services must be available. ImageMagick and fontconfig support optional asset downloads. Caelestia is optional.
+
+For Bash, add the binary directory to this terminal and future terminals:
+
+```bash
+printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> ~/.bashrc
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Fish users should run `fish_add_path ~/.local/bin` instead.
+
+### Phase 2: provider signup and Codex
+
+Create or sign in to your [ChatGPT account](https://chatgpt.com/). Check [Codex access for your plan](https://help.openai.com/en/articles/11369540-codex-in-chatgpt). If Codex is not installed, use its [official installer](https://github.com/openai/codex#installing-and-running-codex-cli):
+
+```bash
+codex_install_script="$(mktemp)"
+curl -fsSL https://chatgpt.com/codex/install.sh -o "$codex_install_script"
+sh "$codex_install_script"
+rm "$codex_install_script"
+```
+
+Verify Codex and complete its ChatGPT sign-in:
+
+```bash
+codex --version
+codex login
+codex login status
+```
+
+Codex is the working quota adapter. Other providers remain planned; their accounts are not prerequisites for Aether.
+
+### Phase 3: install Aether
+
+Run as your desktop user, without sudo:
 
 ```bash
 git clone https://github.com/maynkudu/aether-ai.git
 cd aether-ai
-codex login
 bash install.sh --fetch-icons --fetch-fonts
-systemctl --user enable --now aether.service
-qs -c aether
+loginctl enable-linger "$USER"
+systemctl --user status aether.service aether-ui.service --no-pager
 ```
 
-Hover over the top-right corner. Open the Control Centre using its gear icon, or from a separate terminal:
+The installer enables the quota daemon and a separate graphical-session service. Lingering starts the daemon at boot before login. The interface starts when your Wayland session is available. No manual `qs` launch is needed on a managed graphical session. For a manually started compositor, follow the [startup integration instructions](docs/LINUX.md#compositors-without-systemd-session-integration).
+
+Use `bash install.sh` to skip optional artwork and font downloads. [Installation details](docs/LINUX.md#phase-3-install-aether-and-enable-startup).
+
+### Phase 4: usage
+
+Hover over the top-right corner to open the drawer, then select Settings. You can also open the control centre from a terminal:
 
 ```bash
 qs -c aether ipc call dashboard settings
+aether accounts
+aether usage
 ```
 
-[Full Linux guide →](docs/LINUX.md)
+Refresh beside Settings and Ctrl+R reread the cache. The daemon queries quota every three minutes. The UI stays beneath full-screen apps. See [usage and service commands](docs/LINUX.md#phase-4-usage).
 
 ### Release downloads
 
-The current Linux alpha archive is available [here](https://github.com/maynkudu/aether-ai/releases/download/v0.2.0-alpha.1/aether-arch-linux-x86_64.tar.gz). The archive is Arch x86_64-specific; use the source installation guide above for setup and dependencies. Historical cross-platform preview assets are unsupported.
+The historical Linux alpha archive is available [here](https://github.com/maynkudu/aether-ai/releases/download/v0.2.0-alpha.1/aether-arch-linux-x86_64.tar.gz). The archive is Arch x86_64-specific and predates this service setup. Use the source installation above for the complete current installer. Historical cross-platform preview assets are unsupported.
 
 ## CLI
 
@@ -102,7 +151,7 @@ aether history 7      # seven days of local history
 aether version
 ```
 
-`aether refresh` performs a provider probe; avoid running concurrently with the Linux daemon. Fish users can run `fish_add_path ~/.local/bin` if the CLI is not found.
+`aether refresh` performs a provider probe. Stop the daemon before a manual probe and start it afterward, as shown in the [Linux guide](docs/LINUX.md#phase-4-usage). Fish users can run `fish_add_path ~/.local/bin` if the CLI is not found.
 
 ## Updates & releases
 

@@ -182,15 +182,15 @@ ShellRoot {
     property var brandIndex: ({})
     property string brandDirectory: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/brand-icons"
     Component.onCompleted: {
-        if (prefs.motionRevision < 2) {
-            if (prefs.motionMs === 820) prefs.motionMs = 1100
-            prefs.motionRevision = 2
-        }
-        // Keep revision-3 timing for data, not navigation.
-        if (prefs.motionRevision < 4) {
-            if (prefs.motionRevision === 3) prefs.dataMotionMs = Math.max(1200,Math.min(2800,prefs.motionMs))
-            prefs.motionMs = 820
-            prefs.motionRevision = 4
+        if (prefs.motionRevision < 5) {
+            // Revision 3 stored data timing in the interface preference.
+            if (prefs.motionRevision === 3) {
+                prefs.dataMotionMs = Math.max(1200,Math.min(2800,prefs.motionMs))
+                prefs.motionMs = 240
+            }
+            if (prefs.motionMs === 820) prefs.motionMs = 240
+            if (prefs.dataMotionMs === 1800) prefs.dataMotionMs = 450
+            prefs.motionRevision = 5
         }
         syncRingAccounts()
         if (!reader.running) reader.running = true
@@ -260,10 +260,11 @@ ShellRoot {
     // Independent interface and data clocks, advanced by Qt's animation driver.
     function motionDuration(factor) {
         if (prefs.motionStyle === "reduced") return 0
-        return Math.round(Math.max(500, prefs.motionMs) * factor * (prefs.motionStyle === "smooth" ? 1.12 : 1))
+        return Math.round(Math.max(120, prefs.motionMs) * factor * (prefs.motionStyle === "smooth" ? 1.12 : 1))
     }
+    function controlDuration() { return prefs.motionStyle === "reduced" ? 0 : Math.max(80,Math.min(140,root.motionDuration(0.4))) }
     function dataDuration(factor) {
-        return prefs.motionStyle === "reduced" ? 0 : Math.round(Math.max(1200,prefs.dataMotionMs)*factor)
+        return prefs.motionStyle === "reduced" ? 0 : Math.round(Math.max(200,prefs.dataMotionMs)*factor)
     }
     component MotionValue: Item {
         id: motion
@@ -273,7 +274,7 @@ ShellRoot {
         property real factor: 1
         property bool dataMotion: false
         property bool proportional: false
-        property int curve: Easing.InOutSine
+        property int curve: Easing.OutCubic
         property bool instant: prefs.motionStyle === "reduced"
         property bool ready: false
         function retarget() {
@@ -309,10 +310,10 @@ ShellRoot {
     function unit(v) { return Math.max(0, Math.min(1, v)) }
     function smooth(t) { t = unit(t); return t*t*(3-2*t) }
     function quintic(t) { t = unit(t); return t*t*t*(t*(t*6-15)+10) }
-    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: 0.9 }
+    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: root.opened ? 1 : 2/3 }
     property real reveal: unit(drawerSpring.value)
     MotionValue { id: drawerContentSpring; targetValue: root.opened ? 1 : 0; factor: 1.10; proportional: true; curve: Easing.Linear }
-    MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: 0.9 }
+    MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: root.settingsOpen ? 1 : 2/3 }
     property real settingsReveal: unit(settingsSpring.value)
     MotionValue { id: settingsContentSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
     MotionValue { id: pageSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
@@ -328,8 +329,8 @@ ShellRoot {
     function heightProgress(p) { return p }
     function pageStage(i) {
         if (prefs.motionStyle === "reduced") return 1
-        let delay = 0.035 + (prefs.staggerEnabled ? 0.49*(1-Math.exp(-Math.max(0,i)/12)) : 0)
-        return smooth((unit(pageSpring.value)-delay)/0.44)
+        let delay = prefs.staggerEnabled ? Math.min(0.5,Math.min(120,Math.max(0,i)*12)/Math.max(1,root.motionDuration(1.05))) : 0
+        return smooth((unit(pageSpring.value)-delay)/(1-delay))
     }
     function pageDataProgress(i) {
         if (prefs.motionStyle === "reduced") return 1
@@ -339,8 +340,8 @@ ShellRoot {
     component ItemGrowth: Scale {
         property real stage: 1
         origin.x: 0; origin.y: 0
-        xScale: 0.76 + 0.24*stage
-        yScale: 0.76 + 0.24*stage
+        xScale: 0.985 + 0.015*stage
+        yScale: 0.985 + 0.015*stage
     }
     property real finalPanelX: 6 + (drawer.width-12-panelWidth)*ax
     property real finalPanelY: 6 + (drawer.height-12-panelHeight)*ay
@@ -361,8 +362,8 @@ ShellRoot {
     property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
     function stagger(i) {
         if (prefs.motionStyle === "reduced") return reveal
-        let delay = 0.12 + (prefs.staggerEnabled ? Math.min(i,10)*0.025 : 0)
-        return smooth((unit(drawerContentSpring.value)-delay)/0.46)
+        let delay = prefs.staggerEnabled ? Math.min(0.5,Math.min(120,Math.max(0,i)*12)/Math.max(1,root.motionDuration(1.10))) : 0
+        return smooth((unit(drawerContentSpring.value)-delay)/(1-delay))
     }
     function windowFor(account, minutes) {
         let windows = account.windows || []
@@ -372,7 +373,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 820; property int dataMotionMs: 1800; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 240; property int dataMotionMs: 450; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: false; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -426,18 +427,91 @@ ShellRoot {
         Text { anchors.centerIn: parent; text: glyph.fallback; color: root.iconColor; font.family: root.sans; font.pixelSize: 18; visible: mono.status !== Image.Ready }
     }
     component MText: Text { font.family: root.sans; color: root.foreground; font.pixelSize: 14; renderType: Text.QtRendering }
-    component MButton: Rectangle {
+    // Feather-derived 24 px paths (MIT); see FEATHER-LICENSE.
+    function iconPath(name) {
+        switch (name) {
+        case "Overview": return "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"
+        case "Appearance": return "M4 7h16 M4 17h16 M9 4v6 M15 14v6"
+        case "Providers": return "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75"
+        case "Analytics": return "M3 3v18h18 M8 17v-4 M13 17V7 M18 17v-7"
+        case "Behaviour": return "M4 6h16 M4 12h16 M4 18h16 M8 4v4 M16 10v4 M11 16v4"
+        case "Shortcuts": return "M3 5h18v14H3z M7 9h.01 M11 9h.01 M15 9h.01 M7 13h.01 M11 13h.01 M15 13h.01 M8 16h8"
+        case "Updates": return "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3"
+        case "About": return "M12 22a10 10 0 1 0 0-20a10 10 0 0 0 0 20 M12 11v6 M12 7h.01"
+        case "refresh": return "M20 11a8 8 0 0 0-14.9-3 M4 4v5h5 M4 13a8 8 0 0 0 14.9 3 M20 20v-5h-5"
+        case "settings": return "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8 M9 2h6l1 3l3 1l3 3v6l-3 1l-1 3l-3 3H9l-1-3l-3-1l-3-3V9l3-1l1-3z"
+        default: return ""
+        }
+    }
+    component LineIcon: Item {
+        id: icon
+        property string name: ""
+        property color ink: root.foreground
+        implicitWidth: 18; implicitHeight: 18
+        Shape {
+            anchors.centerIn: parent; width: 24; height: 24
+            scale: Math.min(icon.width, icon.height) / 24
+            preferredRendererType: Shape.CurveRenderer
+            ShapePath {
+                strokeWidth: 1.75; strokeColor: icon.ink; fillColor: "transparent"
+                capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
+                PathSvg { path: root.iconPath(icon.name) }
+            }
+        }
+    }
+    component HotspotGlyph: Item {
+        id: glyph
+        property string position: "top-left"
+        property color ink: root.muted
+        implicitWidth: 24; implicitHeight: 24
+        Rectangle { x: 5; y: 5; width: 14; height: 11; radius: 2; color: "transparent"; border.width: 1.5; border.color: glyph.ink }
+        Rectangle { x: 11; y: 16; width: 2; height: 3; color: glyph.ink }
+        Rectangle { x: 8; y: 19; width: 8; height: 1.5; radius: 0.75; color: glyph.ink }
+        Rectangle {
+            width: 5; height: 5; radius: 2.5
+            x: glyph.position.indexOf("left") >= 0 ? 2 : glyph.position.indexOf("right") >= 0 ? 17 : 9.5
+            y: glyph.position.indexOf("top") >= 0 ? 2 : glyph.position.indexOf("bottom") >= 0 ? 14 : 8
+            color: glyph.ink
+        }
+    }
+    component HotspotChoice: Button {
+        id: positionButton
+        property string position: ""
+        property bool selected: position !== "" && prefs.hotspot === position
+        implicitWidth: 64; implicitHeight: 36
+        enabled: position !== ""
+        focusPolicy: Qt.StrongFocus; hoverEnabled: true
+        checkable: true; autoExclusive: true; checked: selected
+        Accessible.role: position === "" ? Accessible.StaticText : Accessible.RadioButton
+        Accessible.name: position === "" ? "Screen" : "Activate from " + position.replace("center","centre").replace("-"," ")
+        Accessible.checked: selected
+        onClicked: if (position) prefs.hotspot = position
+        background: Rectangle {
+            radius: height/2
+            color: positionButton.selected ? root.primary : positionButton.down || positionButton.hovered ? root.track : "transparent"
+            border.width: positionButton.activeFocus ? 2 : 0; border.color: root.foreground
+            Behavior on color { ColorAnimation { duration: root.controlDuration() } }
+        }
+        contentItem: Item {
+            HotspotGlyph { anchors.centerIn: parent; visible: positionButton.position !== ""; position: positionButton.position; ink: positionButton.selected ? root.onAccent : root.muted }
+            MText { anchors.centerIn: parent; visible: positionButton.position === ""; text: "SCREEN"; font.pixelSize: 11; color: root.muted }
+        }
+    }
+    component MButton: Button {
         id: button
         property string glyph: "settings"
-        property string fallback: "⚙"
-        signal clicked()
         implicitWidth: 44; implicitHeight: 44
-        radius: pointer.pressed ? 14 : pointer.containsMouse ? 16 : 22
-        color: pointer.containsMouse ? root.track : root.buttonColor
-        Behavior on radius { NumberAnimation { duration: root.motionDuration(0.25); easing.type: Easing.OutCubic } }
-        Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
-        ProviderIcon { anchors.centerIn: parent; width: 20; height: 20; name: button.glyph; fallback: button.fallback }
-        MouseArea { id: pointer; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: button.clicked() }
+        hoverEnabled: true; focusPolicy: Qt.StrongFocus
+        Accessible.name: glyph === "refresh" ? "Refresh local view" : "Settings"
+        contentItem: Item { LineIcon { anchors.centerIn: parent; width: 20; height: 20; name: button.glyph } }
+        background: Rectangle {
+            radius: button.down ? 14 : button.hovered ? 16 : 22
+            color: button.hovered ? root.track : root.buttonColor
+            border.width: button.activeFocus ? 2 : 0; border.color: root.primary
+            Behavior on radius { NumberAnimation { duration: root.controlDuration(); easing.type: Easing.OutCubic } }
+            Behavior on color { ColorAnimation { duration: root.controlDuration() } }
+        }
+        ToolTip.visible: hovered; ToolTip.text: Accessible.name; ToolTip.delay: 450
     }
     component MSwitch: Switch {
         id: control
@@ -449,14 +523,14 @@ ShellRoot {
             border.width: control.checked ? 0 : 1; border.color: root.outline
             Rectangle {
                 id: switchThumb
-                MotionValue { id: switchSpring; targetValue: control.checked ? 1 : 0; factor: 0.30 }
+                MotionValue { id: switchSpring; targetValue: control.checked ? 1 : 0; factor: 0.4 }
                 property real slide: root.unit(switchSpring.value)
                 width: 16 + 4 * slide; height: width; radius: width / 2
                 anchors.verticalCenter: parent.verticalCenter
                 x: 6 + (parent.width - width - 10) * slide
                 color: control.checked ? root.onAccent : root.muted
             }
-            Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
+            Behavior on color { ColorAnimation { duration: root.controlDuration() } }
         }
     }
     component MSlider: Slider {
@@ -471,7 +545,7 @@ ShellRoot {
             x: control.leftPadding + control.visualPosition * Math.max(0, control.availableWidth - width)
             y: (control.height - height) / 2
             implicitWidth: 16; implicitHeight: 24; radius: 8; color: root.primary
-            MotionValue { id: sliderSpring; targetValue: control.pressed ? 1.075 : 1; factor: 0.25 }
+            MotionValue { id: sliderSpring; targetValue: control.pressed ? 1.075 : 1; factor: 0.4 }
             scale: prefs.motionStyle === "liquid" ? sliderSpring.value : 1
         }
     }
@@ -638,7 +712,7 @@ ShellRoot {
         implicitWidth: Math.min(prefs.layoutWidth + 12, screen ? screen.width : 452)
         implicitHeight: Math.min(780, screen ? screen.height : 780)
         color: "transparent"
-        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.namespace: "aether-drawer"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
@@ -668,18 +742,18 @@ ShellRoot {
         }
         Rectangle {
             id: body
-            property real inset: 6 * root.reveal
-            property real seed: Math.min(14, root.panelHeight, root.panelWidth)
-            x: inset + (drawer.width - 2*inset - width) * root.ax
-            y: inset + (drawer.height - 2*inset - height) * root.ay
-            width: seed + (root.panelWidth-seed) * root.reveal
-            height: seed + (root.panelHeight-seed) * root.heightProgress(root.reveal)
+            x: root.finalPanelX
+            y: root.finalPanelY
+            width: root.panelWidth
+            height: root.panelHeight
+            transform: Translate { x: (root.ax-0.5)*8*(1-root.reveal); y: (root.ay-0.5)*8*(1-root.reveal) }
             visible: root.reveal > 0.0001
-            radius: root.liquidRadius(width, height, root.reveal, 30)
+            enabled: root.opened
+            radius: 30
             color: root.surface
 
             clip: true
-            opacity: root.smooth(root.reveal / 0.12)
+            opacity: root.reveal
             // The content is always measured at the FINAL width. No text
             // reflow, scale, or layout resizing during the reveal.
             Flickable {
@@ -703,7 +777,7 @@ ShellRoot {
                     RowLayout {
                         id: heading
                         opacity: root.stagger(0)
-                        transform: Translate { y: (1 - heading.opacity) * 12 }
+                        transform: Translate { y: (1 - heading.opacity) * 4 }
                         Layout.fillWidth: true; spacing: 12
                         WispMark { Layout.preferredWidth: 38; Layout.preferredHeight: 38; surfaceActive: root.opened }
                         ColumnLayout {
@@ -711,12 +785,13 @@ ShellRoot {
                             MText { text: "aether.ai"; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -1.3; Layout.fillWidth: true; elide: Text.ElideRight }
                             MText { text: "AI resource monitor"; color: root.muted; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
+                        MButton { glyph: "refresh"; Layout.alignment: Qt.AlignVCenter; onClicked: root.refreshView() }
                         MButton { Layout.alignment: Qt.AlignVCenter; onClicked: { root.settingsOpen = true; root.hide() } }
                     }
                     RowLayout {
                         id: sectionHeading
                         opacity: root.stagger(1)
-                        transform: Translate { y: (1 - sectionHeading.opacity) * 10 }
+                        transform: Translate { y: (1 - sectionHeading.opacity) * 4 }
                         Layout.fillWidth: true
                         MText { text: "ACCOUNTS · REMAINING QUOTA"; color: root.muted; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 1.1; Layout.fillWidth: true }
                         MText { text: (root.accounts.length < 10 ? "0" : "") + root.accounts.length; color: root.muted; font.pixelSize: 12; font.family: root.monoFont }
@@ -729,7 +804,7 @@ ShellRoot {
                             required property var modelData
                             required property int index
                             opacity: root.stagger(index + 2)
-                            transform: Translate { y: (1 - accountCard.opacity) * 16 }
+                            transform: Translate { y: (1 - accountCard.opacity) * 4 }
                             Layout.fillWidth: true
                             implicitHeight: card.implicitHeight + 36
                             radius: prefs.cardRadius; color: root.cardColor
@@ -761,7 +836,7 @@ ShellRoot {
                                         property color indicator: known && remaining < 20 ? root.danger : root.primary
                                         required property int index
                                         opacity: root.stagger(accountCard.index + 3 + index)
-                                        transform: Translate { y: (1 - quota.opacity) * 8 }
+                                        transform: Translate { y: (1 - quota.opacity) * 4 }
                                         Layout.fillWidth: true; spacing: 8
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 8
@@ -804,7 +879,7 @@ ShellRoot {
                                 implicitHeight: ringContent.implicitHeight + 24
                                 radius: prefs.cardRadius; color: root.cardColor
                                 opacity: root.stagger(index + 2)
-                                transform: Translate { y: (1 - ringCard.opacity) * 16 }
+                                transform: Translate { y: (1 - ringCard.opacity) * 4 }
                                 ColumnLayout {
                                     id: ringContent
                                     anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
@@ -919,7 +994,7 @@ ShellRoot {
                     RowLayout {
                         id: footer
                         opacity: root.stagger(Math.min(root.accounts.length + 3, 10))
-                        transform: Translate { y: (1 - footer.opacity) * 8 }
+                        transform: Translate { y: (1 - footer.opacity) * 4 }
                         Layout.fillWidth: true; spacing: 8
                         Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.muted }
                         MText { text: "Local cache"; color: root.muted; font.pixelSize: 11 }
@@ -942,15 +1017,15 @@ ShellRoot {
         implicitHeight: 36
         radius: 18
         color: "transparent"
-        MotionValue { id: buttonSpring; targetValue: choiceMouse.pressed ? 0.98 : choiceMouse.containsMouse && choice.enabled ? 1.02 : 1; factor: 0.25 }
+        MotionValue { id: buttonSpring; targetValue: choiceMouse.pressed ? 0.98 : 1; factor: 0.4 }
         Rectangle {
             anchors.fill: parent; radius: choice.radius
             scale: prefs.motionStyle === "liquid" ? buttonSpring.value : 1
             color: choice.selected ? root.primary : choiceMouse.pressed ? root.buttonColor : choiceMouse.containsMouse ? (choice.elevated ? root.buttonColor : root.track) : choice.elevated ? root.track : root.cardColor
             border.width: choice.elevated && !choice.selected ? 1 : 0
             border.color: choiceMouse.containsMouse ? root.primary : root.outline
-            Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
-            Behavior on border.color { ColorAnimation { duration: root.motionDuration(0.25) } }
+            Behavior on color { ColorAnimation { duration: root.controlDuration() } }
+            Behavior on border.color { ColorAnimation { duration: root.controlDuration() } }
         }
         Row { anchors.centerIn: parent; spacing: 6
             GitHubMark { visible: choice.githubIcon; width: 17; height: 17; anchors.verticalCenter: parent.verticalCenter; ink: choice.selected ? root.onAccent : root.foreground }
@@ -1039,8 +1114,8 @@ ShellRoot {
             color: liquidSelect.down ? root.buttonColor : liquidSelect.hovered ? (liquidSelect.prominent ? root.buttonColor : root.track) : liquidSelect.prominent ? root.track : root.cardColor
             border.width: 1
             border.color: liquidSelect.activeFocus || liquidSelect.popup.visible ? root.primary : root.outline
-            Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
-            Behavior on border.color { ColorAnimation { duration: root.motionDuration(0.25) } }
+            Behavior on color { ColorAnimation { duration: root.controlDuration() } }
+            Behavior on border.color { ColorAnimation { duration: root.controlDuration() } }
         }
         indicator: ChevronDown {
             width: 19; height: 19
@@ -1097,7 +1172,7 @@ ShellRoot {
                 color: optionRow.down ? root.buttonColor : optionRow.over ? root.track : optionRow.chosen ? root.buttonColor : liquidSelect.themeGrid ? root.surface : "transparent"
                 border.width: optionRow.chosen || optionRow.over ? 1 : 0
                 border.color: optionRow.chosen ? root.primary : root.outline
-                Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
+                Behavior on color { ColorAnimation { duration: root.controlDuration() } }
             }
         }
         popup: Popup {
@@ -1197,11 +1272,11 @@ ShellRoot {
         Layout.fillWidth: true; implicitHeight: 48; radius: 14
         color: linkMouse.pressed ? root.buttonColor : linkMouse.containsMouse ? (link.githubIcon ? root.buttonColor : root.track) : link.githubIcon ? root.track : root.cardColor
         border.width: link.githubIcon ? 1 : 0; border.color: linkMouse.containsMouse ? root.primary : root.outline
-        Behavior on color { ColorAnimation { duration: root.motionDuration(0.25) } }
+        Behavior on color { ColorAnimation { duration: root.controlDuration() } }
         RowLayout { anchors.fill: parent; anchors.margins: 14
             GitHubMark { visible: link.githubIcon; Layout.preferredWidth: 18; Layout.preferredHeight: 18; ink: root.foreground }
             MText { text: link.label; Layout.fillWidth: true; font.weight: Font.Medium }
-            MText { text: "↗"; color: root.muted }
+            MText { visible: !link.githubIcon; text: "↗"; color: root.muted }
         }
         MouseArea { id: linkMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.openUrlExternally(link.url) }
     }
@@ -1213,19 +1288,22 @@ ShellRoot {
         implicitHeight: Math.max(300, Math.min(720, screen ? screen.height - 32 : 720))
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.namespace: "aether-settings"
         WlrLayershell.keyboardFocus: root.settingsOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
         Rectangle {
             id: settingsBody
             anchors.centerIn: parent
-            width: settingsPanel.width * root.settingsReveal
-            height: settingsPanel.height * root.heightProgress(root.settingsReveal)
-            radius: root.liquidRadius(width, height, root.settingsReveal, 30); color: root.surface
+            width: settingsPanel.width
+            height: settingsPanel.height
+            scale: 0.985 + 0.015*root.settingsReveal
+            transformOrigin: Item.TopRight
+            radius: 30; color: root.surface
 
             clip: true
-            opacity: root.smooth(root.settingsReveal/0.1)
+            opacity: root.settingsReveal
             visible: root.settingsReveal > 0.0001
+            enabled: root.settingsOpen
             // Local shortcuts are active only when the settings window has focus.
             Shortcut { sequence: "Escape"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.dismissAll() }
             Shortcut { sequence: "Ctrl+1"; context: Qt.WindowShortcut; enabled: root.settingsOpen && prefs.localShortcutsEnabled; autoRepeat: false; onActivated: root.selectPage("Overview") }
@@ -1271,19 +1349,31 @@ ShellRoot {
                                 anchors.fill: parent; spacing: 8
                                 Repeater {
                                     model: root.settingsPages
-                                    delegate: Rectangle {
+                                    delegate: Button {
+                                        id: navigationButton
                                         required property string modelData
-                                        width: navigationTrack.width; height: navigationTrack.rowHeight; radius: height/2
-                                        color: root.settingsTab !== modelData && navMouse.containsMouse ? root.track : "transparent"
-                                        MText { anchors.left: parent.left; anchors.leftMargin: 14; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData; color: root.settingsTab === parent.modelData ? root.onAccent : root.foreground; font.weight: Font.Medium; font.pixelSize: 13 }
-                                        MouseArea { id: navMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.selectPage(parent.modelData) }
+                                        width: navigationTrack.width; height: navigationTrack.rowHeight
+                                        leftPadding: 14; rightPadding: 14
+                                        hoverEnabled: true; focusPolicy: Qt.StrongFocus
+                                        Accessible.name: modelData
+                                        onClicked: root.selectPage(modelData)
+                                        background: Rectangle {
+                                            radius: height/2
+                                            color: root.settingsTab !== navigationButton.modelData && navigationButton.hovered ? root.track : "transparent"
+                                            border.width: navigationButton.activeFocus ? 2 : 0; border.color: root.foreground
+                                        }
+                                        contentItem: RowLayout {
+                                            spacing: 8
+                                            LineIcon { name: navigationButton.modelData; visible: settingsPanel.width >= 680; Layout.preferredWidth: 16; Layout.preferredHeight: 16; ink: root.settingsTab === navigationButton.modelData ? root.onAccent : root.foreground }
+                                            MText { text: navigationButton.modelData; color: root.settingsTab === navigationButton.modelData ? root.onAccent : root.foreground; font.weight: Font.Medium; font.pixelSize: 13; Layout.fillWidth: true }
+                                        }
                                     }
                                 }
                             }
                         }
                         Item { Layout.fillHeight: true }
                         Description { text: "MIT · v" + root.version; font.pixelSize: 11 }
-                        Choice { label: "GitHub ↗"; githubIcon: true; Layout.fillWidth: true; onChosen: Qt.openUrlExternally("https://github.com/maynkudu/aether-ai") }
+                        Choice { label: "GitHub"; githubIcon: true; Layout.fillWidth: true; onChosen: Qt.openUrlExternally("https://github.com/maynkudu/aether-ai") }
                     }
                 }
                 ColumnLayout {
@@ -1464,8 +1554,8 @@ ShellRoot {
                                 RowLayout { opacity: root.pageStage(23); transform: ItemGrowth { stage: root.pageStage(23) }
                                     MText { text: "Stagger content reveal"; Layout.fillWidth: true } MSwitch { checked: prefs.staggerEnabled; onToggled: prefs.staggerEnabled = checked } }
                                 RowLayout { opacity: root.pageStage(24); transform: ItemGrowth { stage: root.pageStage(24) }
-                                    MText { text: "Interface motion · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 500; to: 1200; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
-                                RowLayout { opacity: root.pageStage(25); transform: ItemGrowth { stage: root.pageStage(25) } MText { text: "Data motion · " + prefs.dataMotionMs + " ms"; Layout.fillWidth: true } MSlider { from: 1200; to: 2800; stepSize: 100; value: prefs.dataMotionMs; onMoved: prefs.dataMotionMs = Math.round(value) } }
+                                    MText { text: "Interface motion · " + prefs.motionMs + " ms"; Layout.fillWidth: true } MSlider { from: 120; to: 1200; stepSize: 20; value: prefs.motionMs; onMoved: prefs.motionMs = Math.round(value) } }
+                                RowLayout { opacity: root.pageStage(25); transform: ItemGrowth { stage: root.pageStage(25) } MText { text: "Data motion · " + prefs.dataMotionMs + " ms"; Layout.fillWidth: true } MSlider { from: 200; to: 2800; stepSize: 100; value: prefs.dataMotionMs; onMoved: prefs.dataMotionMs = Math.round(value) } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Providers"; Layout.fillWidth: true; spacing: 12
@@ -1690,7 +1780,7 @@ ShellRoot {
                                     GridLayout { anchors.fill: parent; anchors.margins: 12; columns: 3; rowSpacing: 6; columnSpacing: 6
                                         Repeater {
                                             model: ["top-left","top-center","top-right","left-center","","right-center","bottom-left","bottom-center","bottom-right"]
-                                            delegate: Choice { required property string modelData; required property int index; Layout.fillWidth: true; Layout.fillHeight: true; label: ["↖","↑","↗","←","SCREEN","→","↙","↓","↘"][index]; selected: prefs.hotspot === modelData; enabled: modelData !== ""; onChosen: if(modelData) prefs.hotspot = modelData }
+                                            delegate: HotspotChoice { required property string modelData; Layout.fillWidth: true; Layout.fillHeight: true; position: modelData }
                                         }
                                     }
                                 }
@@ -1705,7 +1795,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=820; prefs.dataMotionMs=1800; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=240; prefs.dataMotionMs=450; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=false; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14

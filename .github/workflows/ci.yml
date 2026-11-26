@@ -56,7 +56,7 @@ jobs:
           bash -n install.sh
           bash -n shell/install.sh
           bash -n scripts/ci-smoke.sh
-          python -m py_compile scripts/update.py scripts/release_check.py scripts/test_backend.py shell/fetch-brand-icons.py shell/fetch-fonts.py
+          python -m py_compile scripts/update.py scripts/release_check.py scripts/test_backend.py scripts/test_installation.py shell/fetch-brand-icons.py shell/fetch-fonts.py
       - name: Rust build and integration tests
         shell: bash
         run: |
@@ -64,6 +64,7 @@ jobs:
           cargo test --locked
           cargo build --release --locked
           python scripts/test_backend.py target/release/aether
+          python scripts/test_installation.py
       - name: Headless Quickshell startup and IPC
         shell: bash
         run: |
@@ -110,6 +111,7 @@ jobs:
           grep -Fx 'aether-ai/shell/shell.qml' "$stage/source-files.txt"
           grep -Fx 'aether' "$stage/binary-files.txt"
           grep -Fx 'shell/shell.qml' "$stage/binary-files.txt"
+          grep -Fx 'systemd/aether-ui.service' "$stage/binary-files.txt"
           (cd dist && sha256sum *.tar.gz > SHA256SUMS && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
