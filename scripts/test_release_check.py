@@ -29,11 +29,6 @@ class ReleaseValidation(unittest.TestCase):
         self.assertEqual(self.invoke("v0.2.0-alpha.1"),"Alpha changes.\n")
         self.assertEqual(self.invoke("v0.2.0"),"Stable changes.\n")
 
-    def test_deferred_native_versions_do_not_gate_linux(self):
-        (self.root/"apps/desktop").mkdir(parents=True)
-        (self.root/"apps/desktop/Cargo.toml").write_text('[package]\nversion = "0.1.0"\n')
-        self.assertEqual(self.invoke("v0.2.0-alpha.1"),"Alpha changes.\n")
-
     def test_wrong_or_missing_tag(self):
         for tag in ("v0.2.0-alpha.0","v0.2.0-alpha.01","v0.2.0-foo.1","v0.3.0-alpha.1","v0.2.0-beta.1","v0.2.0-alpha.2"):
             with self.subTest(tag=tag),self.assertRaises(SystemExit):

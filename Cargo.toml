@@ -16,6 +16,4 @@ name = "aether_core"
 path = "src/lib.rs"
 
 [workspace]
-members = ["apps/desktop"]
-default-members = ["."]
 resolver = "2"

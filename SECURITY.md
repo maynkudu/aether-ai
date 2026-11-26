@@ -8,6 +8,6 @@ Use [GitHub private vulnerability reporting](https://github.com/maynkudu/aether-
 
 ## Trust boundaries
 
-aether queries the native Codex app-server, which may refresh its authentication. Local caches can include account labels and filesystem paths. No hosted inference proxy or telemetry is built in. Optional asset downloads and updates contact documented upstream sources. Historical Windows/macOS preview builds are unsupported and unsigned or ad-hoc signed. Current distribution targets Linux only. Linux updater verifies source ancestry, not signed release provenance yet.
+aether queries the native Codex app-server, which may refresh its authentication. Local caches can include account labels and filesystem paths. No hosted inference proxy or telemetry is built in. Optional asset downloads and updates contact documented upstream sources. Distribution targets Linux only. Linux updater verifies source ancestry, not signed release provenance yet.
 
 Never attach credentials, auth.json, raw settings or cache dumps to public reports. Rotate or revoke exposed credentials through the provider.

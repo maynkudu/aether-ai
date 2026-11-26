@@ -1,6 +1,6 @@
 # Contributing
 
-Welcome! Linux / Wayland fixes, provider adapters, documentation and compositor testing are appreciated. Windows and macOS prototype work is paused.
+Welcome! Linux / Wayland fixes, provider adapters, documentation and compositor testing are appreciated.
 
 1. Open an issue for substantial changes.
 2. Fork, create a descriptive branch, and keep changes focused.
@@ -17,7 +17,7 @@ bash -n install.sh
 bash -n shell/install.sh
 ```
 
-Use --locked once Cargo.lock is committed. Desktop: `cargo run -p aether-desktop --release`. Linux UI: `bash install.sh --ui-only` and restart aether. CI runs automatically on version tags only, or manually from Actions. It covers headless Quickshell and native builds; real desktop interaction tests need actual desktops.
+Use `--locked` once Cargo.lock is committed. Linux UI: `bash install.sh --ui-only` and restart aether. CI runs automatically on version tags only, or manually from Actions. It covers headless Quickshell builds; real interaction tests need an active desktop.
 
 ## Principles
 

@@ -2,8 +2,8 @@
 
 ## [Unreleased]
 
-- Focus active development, distribution and release CI exclusively on Linux / Wayland; preserve Windows/macOS prototype and DMG packaging source for future development.
-- Remove native platform build jobs and release assets from future releases, decouple Linux version validation from dormant desktop metadata, and simplify website downloads and documentation.
+- Keep Linux / Wayland as the supported target and run release checks for Linux builds.
+- Add token analytics and smoother quota charts to the Linux control centre.
 
 ## [0.2.0-alpha.1] - 2026-11-25
 
@@ -13,34 +13,24 @@ First public alpha candidate. The release is a prerelease, not a stable build.
 
 - Local-first Codex quota monitoring, multiple accounts, real quota history, and Wisp branding.
 - Linux (Arch x86_64 / Wayland): Quickshell control centre, grid/ring quotas, configurable motion, palettes including Caelestia, shortcuts and existing opt-in updater.
-- macOS (Apple Silicon and Intel): native Rust desktop, seven built-in palettes, experimental menu bar, global shortcuts, compact primary-display corner drawer, independent polling while minimized, and opt-in stable/preview release updates staged for Quit.
-- Windows x64: native Rust desktop, seven built-in palettes, quota monitoring and history.
-- Build archives for all four targets, source archive, SHA256 checksums, tag-only CI, and early release preflight.
+- Arch Linux x86_64 release archive, source archive, SHA256 checksums, tag-only CI, and release preflight.
 
 ### Known limitations
 
-- Codex is the only implemented provider adapter. Linux is the primary target; the new native macOS integrations require real-device testing. Windows remains experimental.
-- macOS packages are ad-hoc signed and not notarized; Windows packages are unsigned. macOS auto-update installation requires a writable Applications folder, is opt-in, and uses official published assets with checksum and bundle-integrity validation. It does not run after the application quits except to complete an already staged replacement.
-- No macOS login launch agent yet; background polling continues while Aether runs minimized, and Quit stops it.
+- Codex is the only implemented provider adapter.
 - The Linux binary archive targets Arch x86_64; Quickshell, Wayland and Codex prerequisites still apply.
 
 ## Development history before alpha
 
-- Turn the macOS corner reveal into a compact always-on-top quota drawer while minimized, with delayed pointer-leave dismissal, full-window restoration, Escape and Cmd+1–5 navigation.
 - Bound the native poller's result storage to its latest snapshot.
 
-- Add experimental opt-in macOS release updater with stable/preview channels, official architecture-specific assets, SHA256 and bundle checks, staging and installation on Quit.
 - Validate release tags and lockfile before expensive matrix builds; embed release identity in native binaries.
 
-- Add experimental macOS menu bar controls, opt-in registered shortcuts and selectable primary-display corner dwell reveal; close minimizes when native controls initialize successfully.
-- Move native quota refreshes into a single independent polling worker, preventing concurrent refreshes and keeping macOS polling with the window minimized.
 
 - Accept version-matched alpha, beta and RC release tags with exact dated notes, and draft suffixed tags as GitHub prereleases; retain release-only CI.
-- Port all seven built-in Linux colour schemes to native desktop and migrate existing light/dark preferences. Caelestia remains Linux-only.
 
 ### Release-only CI
 
-- Limit application and website Actions workflows to version-tag pushes and manual dispatch; retain mandatory native release build/test gates.
 - Fix invalid QML separators after per-item growth transforms.
 
 ### Responsive navigation, slow data growth
@@ -55,41 +45,38 @@ First public alpha candidate. The release is a prerelease, not a stable build.
 - Draw concentric quota rings with a dedicated linear clock and preserve ring delegates across unchanged account identities. Animate changed quota values independently.
 - Extend headless smoke coverage to render real-shaped sample ring cards, including 100%, zero and unknown quota states.
 
-### Concentric rings and web refinements
+### Concentric quota rings
 
 - Adopt full concentric session and weekly quota gauges on Linux, preserving real quota values, resets and provider identity.
-- Fix website interaction initialization, separate motion loading, introduce each section, enable default Wisp motion and use Rune Icons without decorative link arrows.
 
 ### Wisp identity
 
 - Adopt Wisp as the official mascot while retaining aether.ai as the product name. Replace the spiral in the README, QML headers and native icons.
-- Add static and animated SVGs, wordmark lockups, browser preview and shared motion tracks; native 18-second idle animations with blinking, float, breathing, curious/happy expressions and halo. Respect Reduced motion on Linux and persist the independent mascot animation preference on all frontends.
-- Include branding assets in Linux archives and test native mascot timing in desktop CI.
+- Add static and animated SVGs, wordmark lockups and Linux QML motion tracks. Respect Reduced motion and persist the animation preference on Linux.
+- Include branding assets in Linux archives and test mascot timing in Linux CI.
 
 ### Simplification, identity and CI reliability
 
 - Remove all glass-material preferences, renderer probes and setup UI. Retain opaque themes, liquid motion and Caelestia detection.
 - Add direct precision trackpad scrolling and configurable speed, independently of reveal animations.
 - Adopt the approved spiral brand mark in documentation, Linux navigation and native window icons.
-- Fix the headless Sway execution failure in containerized Linux CI by removing its file capabilities in the disposable runner only; retain all graphical smoke-test gates. Strengthen cross-platform mock tests, native icon self-tests and diagnostic artifacts.
+- Fix the headless Sway execution failure in containerized Linux CI by removing its file capabilities in the disposable runner only; retain all graphical smoke-test gates. Strengthen Linux mock tests, icon self-tests and diagnostic artifacts.
 
 ### Documentation and startup fix
 
 - Rename the dropdown's custom height property to avoid overriding Qt Popup's final property.
 - Redesign the README with original SVG illustrations, platform and configuration guides, contribution and security policies, and issue/PR templates.
 
-### Cross-platform preview
+### Linux interface and shared core
 
 - Correct upward dropdown growth: bottom-left to top-right; downward remains top-left to bottom-right.
-- Shared Rust core with platform-specific storage and Codex executable discovery; preserve Linux CLI and shell paths.
-- Native Windows and macOS desktop preview with real quotas, local history, provider visibility, light/dark modes and in-process polling.
-- CI matrix for Windows x64, Apple Silicon and Intel Macs; package experimental ZIPs and require native build jobs before drafting releases. No native signing/notarization or full Linux parity yet.
+- Keep the Rust quota core, Linux CLI and Quickshell paths in one package.
 
 ### Release engineering and interaction fixes
 
 - Upward dropdowns grow from bottom-left; downward dropdowns grow from top-left. Direction-aware chevrons and available-space sizing.
 - Disable Caelestia without an active standard shell and usable palette; disable Liquid Glass without an active HyprGlass layer renderer. Explanatory tooltips and setup links, with existing safe fallbacks.
-- Linux CI, mock Codex integration tests, headless Quickshell smoke checks, gated draft releases with versioned notes and SHA256 checksums, and monorepo architecture guidance.
+- Linux CI, mock Codex integration tests, headless Quickshell smoke checks, gated draft releases with versioned notes and SHA256 checksums, and architecture documentation.
 - Stabilize dropdown and read-only text focus.
 
 ### Dropdown polish and refractive material
@@ -115,7 +102,7 @@ First public alpha candidate. The release is a prerelease, not a stable build.
 - Added viewport-relative, theme-aware top/bottom scroll fades for the drawer and all settings tabs; configurable depth and enable toggle.
 - Added a Shortcuts tab with persistent desktop binding choices, duplicate detection, and copyable Hyprland legacy/Lua configuration. No compositor files changed automatically.
 - Added focused-window Ctrl+1–7 navigation, Ctrl+R cache refresh, Escape dismiss, and IPC actions for analytics, refresh, dismiss and shortcuts.
-- Documented Linux/Wayland scope and future native-platform port requirements. Backend unchanged.
+- Documented Linux / Wayland support and release requirements. Backend unchanged.
 
 ### Appearance and provider polish
 

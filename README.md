@@ -18,7 +18,7 @@ A local monitor with a top-right quota drawer, account view, and private usage h
 Track remaining Codex quota across local accounts, see session and weekly reset times, and review up to 90 days of locally recorded history. Aether runs on Linux / Wayland with a Rust daemon and Quickshell interface. It sends no telemetry and does not proxy inference requests.
 
 > [!NOTE]
-> **Early development (v0.2.0).** Linux / Wayland is the only supported target. Arch Linux x86_64 and Hyprland are the primary tested setup. Codex is the only implemented quota adapter. Claude Code, Grok, and other providers are planned. Windows and macOS prototypes are paused. No stable GitHub release is available yet.
+> **Early development (v0.2.0).** Linux / Wayland is the only supported target. Arch Linux x86_64 and Hyprland are the primary tested setup. Codex is the only implemented quota adapter. Claude Code, Grok, and other providers are planned. No stable GitHub release is available yet.
 
 ## The current Linux interface
 
@@ -52,7 +52,7 @@ Wisp is Aether's mascot. The product name remains **aether.ai**. Linux supports 
 
 Aether is actively developed and distributed for **Linux / Wayland**. Arch Linux (x86_64) is the tested binary target; Hyprland is the primary compositor. Other compatible Wayland setups may work from source but are not guaranteed.
 
-The Rust daemon runs independently of the Quickshell interface. Windows and macOS ports are preserved in the repository for future development, but are not currently supported, built or distributed in new releases.
+The Rust daemon runs independently of the Quickshell interface. The Linux installer and systemd services are the supported product surface.
 
 ### Provider support
 
@@ -140,7 +140,7 @@ Refresh beside Settings and Ctrl+R reread the cache. The daemon queries quota ev
 
 ### Release downloads
 
-The historical Linux alpha archive is available [here](https://github.com/maynkudu/aether-ai/releases/download/v0.2.0-alpha.1/aether-arch-linux-x86_64.tar.gz). The archive is Arch x86_64-specific and predates this service setup. Use the source installation above for the complete current installer. Historical cross-platform preview assets are unsupported.
+The historical Linux alpha archive is available [here](https://github.com/maynkudu/aether-ai/releases/download/v0.2.0-alpha.1/aether-arch-linux-x86_64.tar.gz). The archive is Arch x86_64-specific and predates this service setup. Use the source installation above for the complete current installer.
 
 ## CLI
 
@@ -168,13 +168,11 @@ aether-update apply development
 aether-update rollback
 ```
 
-See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engineering](docs/RELEASING.md). CI automatically validates Linux builds on version-tag pushes before drafting a release for manual review. Website checks also run on version tags. Both workflows can be started manually; ordinary pushes and pull requests do not trigger them.
+See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engineering](docs/RELEASING.md). CI validates Linux builds on version-tag pushes before drafting a release for manual review. The workflow can also be started manually; ordinary pushes and pull requests do not trigger it.
 
 ## Architecture
 
-<img src="docs/assets/architecture.svg" alt="Shared Rust quota core with the supported Linux app and paused Windows and macOS prototypes" width="100%">
-
-Linux is the only supported and distributed app today. The Windows and macOS frontends in this diagram are paused prototypes. The Linux installer and cache format retain their existing layout.
+Linux is the supported and distributed app. The installer and cache format retain their existing layout.
 
 [Explore the architecture →](docs/ARCHITECTURE.md)
 

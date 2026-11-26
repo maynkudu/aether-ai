@@ -1081,7 +1081,7 @@ ShellRoot {
                                         MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "Quota resources unavailable"; color: root.muted; font.pixelSize: 10; wrapMode: Text.WordWrap }
                                     }
 
-                                    // Align labels and values like the website preview; keep
+                                    // Align labels and values with the product reference; keep
                                     // reset text subordinate rather than splitting it into a third row.
                                     Repeater {
                                         model: ringCard.apiKey ? [] : [
