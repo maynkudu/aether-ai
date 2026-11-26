@@ -192,6 +192,10 @@ ShellRoot {
             if (prefs.dataMotionMs === 1800) prefs.dataMotionMs = 450
             prefs.motionRevision = 5
         }
+        if (prefs.hotspotRevision < 1) {
+            if (prefs.hotspotSize < 32) prefs.hotspotSize = 40
+            prefs.hotspotRevision = 1
+        }
         syncRingAccounts()
         if (!reader.running) reader.running = true
         if (!brandReader.running) brandReader.running = true
@@ -373,7 +377,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 240; property int dataMotionMs: 450; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: false; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 18; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 240; property int dataMotionMs: 450; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: false; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 40; property int hotspotRevision: 0; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -575,6 +579,7 @@ ShellRoot {
         target: "dashboard"
         function settings(): void { if (root.settingsOpen) root.dismissAll(); else root.openSettings("") }
         function toggle(): void { if (root.settingsOpen) root.dismissAll(); else if (root.opened) root.hide(); else { root.pinned = true; root.show() } }
+        function isOpen(): bool { return root.opened }
         function analytics(): void { root.openSettings("Analytics") }
         function refresh(): void { root.refreshView() }
         function dismiss(): void { root.dismissAll() }
@@ -698,7 +703,7 @@ ShellRoot {
             }
         }
     }
-    // One stable overlay. The mask is the union of the tiny corner and
+    // One stable overlay. The mask is the union of the hotspot and
     // the final panel footprint; no per-frame Wayland input-mask updates.
     PanelWindow {
         id: drawer
@@ -712,7 +717,7 @@ ShellRoot {
         implicitWidth: Math.min(prefs.layoutWidth + 12, screen ? screen.width : 452)
         implicitHeight: Math.min(780, screen ? screen.height : 780)
         color: "transparent"
-        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "aether-drawer"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
@@ -1787,7 +1792,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     text: prefs.hotspot.replace("-", " ") }
                                 RowLayout { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }
-                                    MText { text: "Hotspot size · " + prefs.hotspotSize + " px"; Layout.fillWidth: true } MSlider { from: 8; to: 48; stepSize: 2; value: prefs.hotspotSize; onMoved: prefs.hotspotSize = Math.round(value) } }
+                                    MText { text: "Hotspot size · " + prefs.hotspotSize + " px"; Layout.fillWidth: true } MSlider { from: 32; to: 72; stepSize: 4; value: prefs.hotspotSize; onMoved: prefs.hotspotSize = Math.round(value) } }
                                 RowLayout { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
                                     MText { text: "Dismiss delay · " + prefs.dismissDelay + " ms"; Layout.fillWidth: true } MSlider { from: 100; to: 1000; stepSize: 50; value: prefs.dismissDelay; onMoved: prefs.dismissDelay = Math.round(value) } }
                                 RowLayout { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
@@ -1795,7 +1800,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=240; prefs.dataMotionMs=450; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=false; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=18; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=240; prefs.dataMotionMs=450; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=false; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=40; prefs.hotspotRevision=1; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14

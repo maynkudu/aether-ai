@@ -136,7 +136,7 @@ aether accounts
 aether usage
 ```
 
-Refresh beside Settings and Ctrl+R reread the cache. The daemon queries quota every three minutes. The UI stays beneath full-screen apps. See [usage and service commands](docs/LINUX.md#phase-4-usage).
+Refresh beside Settings and Ctrl+R reread the cache. The daemon queries quota every three minutes. The drawer remains available over other windows, including full-screen apps. See [usage and service commands](docs/LINUX.md#phase-4-usage).
 
 ### Release downloads
 
