@@ -64,6 +64,7 @@ jobs:
           cargo test --locked
           cargo build --release --locked
           python scripts/test_backend.py target/release/aether
+          python scripts/test_client_usage.py target/release/aether
           python scripts/test_installation.py
       - name: Headless Quickshell startup and IPC
         shell: bash

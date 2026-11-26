@@ -1,7 +1,11 @@
 pub mod history;
 pub mod analytics;
+pub mod providers;
+mod opencode;
+mod opencode_local;
+mod client_usage;
 use serde_json::{json, Value};
-use std::{path::{Path,PathBuf}, collections::BTreeMap, time::{Duration,SystemTime,UNIX_EPOCH}};
+use std::{path::{Path,PathBuf}, collections::BTreeMap, time::{SystemTime,UNIX_EPOCH}};
 use tokio::{io::{AsyncBufReadExt,AsyncWriteExt,BufReader},process::Command};
 // Platform storage is deliberately independent of frontend configuration.
 pub fn home()->PathBuf {
@@ -99,7 +103,7 @@ async fn probe(path:PathBuf)->Result<Value,String>{
  send(&mut input,json!({"method":"initialized"})).await?;
  send(&mut input,json!({"id":2,"method":"account/rateLimits/read","params":{}})).await?;let result=recv(&mut lines,2).await?;let _=child.kill().await;Ok(result)
 }
-pub async fn refresh()->Value{let old=read(&cache()).unwrap_or(json!({}));let mut tasks=tokio::task::JoinSet::new();let sem=std::sync::Arc::new(tokio::sync::Semaphore::new(3));for (p,n) in discover(){let sem=sem.clone();let auth=auth_kind(&p);tasks.spawn(async move{let result=if auth=="api_key"{None}else{let _permit=sem.acquire().await.unwrap();Some(tokio::time::timeout(Duration::from_secs(20),probe(p.clone())).await)};(p,n,auth,result)});}let mut rows=vec![];while let Some(Ok((p,n,auth,r)))=tasks.join_next().await{let id=p.to_string_lossy();let mut row=json!({"id":id,"name":n,"provider":"Codex","authKind":auth,"status":"unavailable","windows":[]});if auth=="api_key"{row["status"]=json!("api_key");row["updated"]=json!(now());}else{match r{Some(Ok(Ok(v)))=>{let mut windows=vec![];let limits=v.get("rateLimits").unwrap_or(&v);for key in ["primary","secondary"]{if let Some(w)=limits.get(key){if let Some(used)=w.get("usedPercent").and_then(Value::as_f64){windows.push(json!({"remaining":(100.0-used).clamp(0.0,100.0),"minutes":w.get("windowDurationMins"),"reset":w.get("resetsAt")}));}}}row["status"]=json!(if windows.is_empty(){"unavailable"}else{"ok"});row["windows"]=json!(windows);row["updated"]=json!(now());},_=>{if let Some(prev)=old.get("accounts").and_then(Value::as_array).and_then(|a|a.iter().find(|x|x.get("id")==row.get("id"))){row["windows"]=prev["windows"].clone();row["updated"]=prev["updated"].clone();row["status"]=json!("stale");}}}}rows.push(row);}rows.sort_by_key(|v|v["id"].to_string());json!({"updated":now(),"accounts":rows})}
+pub async fn refresh()->Value { providers::refresh().await }
 pub fn save(v:&Value)->std::io::Result<()> {
     use std::io::Write;
     let p=cache();
@@ -115,8 +119,10 @@ pub fn save(v:&Value)->std::io::Result<()> {
     if result.is_err(){let _=std::fs::remove_file(&tmp);}
     result
 }
-pub fn usage()->Value {
-    read(&cache()).unwrap_or(json!({"accounts":[],"updated":null}))
+pub async fn usage()->Value {
+    let mut value=read(&cache()).unwrap_or(json!({"accounts":[],"updated":null}));
+    opencode::update_observations(&mut value).await;
+    value
 }
 pub async fn refresh_and_record()->Value {
     let v=refresh().await;

@@ -14,8 +14,9 @@ pub fn record(cache:&Value)->io::Result<()>{
             if a["status"].as_str()!=Some("ok"){continue}
             if let Some(windows)=a["windows"].as_array(){
                 for w in windows {
-                    if let (Some(minutes),Some(remaining))=(w["minutes"].as_u64(),w["remaining"].as_f64()){
-                        samples.push(json!({"time":time,"id":a["id"],"name":a["name"],"provider":a["provider"],"minutes":minutes,"remaining":remaining.clamp(0.0,100.0)}));
+                    if let Some(remaining)=w["remaining"].as_f64().filter(|n|n.is_finite()) {
+                        if w["minutes"].as_u64().is_none() && w["period"].as_str().is_none(){continue}
+                        samples.push(json!({"time":time,"id":a["id"],"name":a["name"],"provider":a["provider"],"minutes":w["minutes"],"period":w["period"],"label":w["label"],"remaining":remaining.clamp(0.0,100.0)}));
                     }
                 }
             }
@@ -47,7 +48,7 @@ pub fn query(days:u64)->Value{
                         let t=p["time"].as_u64().unwrap_or(0);
                         if t<start||t>now{continue}
                         let Some(id)=p["id"].as_str()else{continue};
-                        let Some(window)=p["minutes"].as_u64()else{continue};
+                        let window=if let Some(minutes)=p["minutes"].as_u64(){format!("minutes:{minutes}")}else if let Some(period)=p["period"].as_str(){period.to_owned()}else{continue};
                         let key=(t/step,id.to_owned(),window);
                         if samples.get(&key).and_then(|v:&Value|v["time"].as_u64()).unwrap_or(0)<=t {samples.insert(key,p);}
                     }

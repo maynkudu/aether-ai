@@ -76,15 +76,15 @@ fn estimate_cost(model: &str, usage: &TokenUsage) -> Option<f64> {
     Some((uncached as f64 * input_rate + cached as f64 * cached_rate + usage.output_tokens as f64 * output_rate) / 1_000_000.0)
 }
 
-fn parse_timestamp(value: &str) -> Option<u64> {
+pub(crate) fn parse_timestamp(value: &str) -> Option<u64> {
     let (date, time) = value.split_once('T')?;
     let mut date_parts = date.split('-');
     let year = date_parts.next()?.parse::<i64>().ok()?;
     let month = date_parts.next()?.parse::<i64>().ok()?;
     let day = date_parts.next()?.parse::<i64>().ok()?;
-    if date_parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) { return None; }
+    if date_parts.next().is_some() || !(0..=9999).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) { return None; }
 
-    let clock_end = time.find(|c| matches!(c, 'Z' | '+' | '-')).unwrap_or(time.len());
+    let clock_end = time.find(['Z', '+', '-']).unwrap_or(time.len());
     let clock = &time[..clock_end];
     let mut time_parts = clock.split(':');
     let hour = time_parts.next()?.parse::<i64>().ok()?;
@@ -156,13 +156,16 @@ fn add_usage(bucket: &mut Bucket, usage: &TokenUsage, model: &str) {
     };
 }
 
-pub fn query(days: u64) -> Value {
+pub async fn query(days: u64) -> Value {
     let now = super::now();
     let homes: Vec<_> = super::discover().into_iter().map(|(path, name)| {
         let auth_kind = super::auth_kind(&path).to_owned();
         (path, name, auth_kind)
     }).collect();
-    query_homes(&homes, days, now)
+    let mut result=query_homes(&homes, days, now);
+    result["openCode"]=super::opencode::statistics(days).await;
+    result["clients"]=json!(super::client_usage::collect_client_usage(days,now));
+    result
 }
 
 fn query_homes(homes: &[(PathBuf, String, String)], days: u64, now: u64) -> Value {

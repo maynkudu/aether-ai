@@ -18,7 +18,7 @@ A local monitor with a top-right quota drawer, account view, and private usage h
 Track remaining Codex quota across local accounts, see session and weekly reset times, and review up to 90 days of locally recorded history. Aether runs on Linux / Wayland with a Rust daemon and Quickshell interface. It sends no telemetry and does not proxy inference requests.
 
 > [!NOTE]
-> **Early development (v0.2.0).** Linux / Wayland is the only supported target. Arch Linux x86_64 and Hyprland are the primary tested setup. Codex is the only implemented quota adapter. Claude Code, Grok, and other providers are planned. No stable GitHub release is available yet.
+> **Early development (v0.2.0).** Linux / Wayland is the only supported target. Arch Linux x86_64 and Hyprland are the primary tested setup. The development build discovers Codex, Claude Code, Pi and OpenCode accounts. Supported sign-ins expose quota windows; OpenCode also reports Go allowances, Console budgets and enabled free models when its local client provides them. API keys and unsupported sign-ins can show recorded local usage. Limits that their providers do not report remain unknown. No stable GitHub release is available yet.
 
 ## The current Linux interface
 
@@ -58,13 +58,12 @@ The Rust daemon runs independently of the Quickshell interface. The Linux instal
 
 | Group | Provider | Quota adapter |
 |---|---|---|
-| First-party agents | OpenAI Codex | Implemented |
-| First-party agents | Claude Code, Grok | Planned |
-| Harnesses / routing | OpenCode, Pi, OpenRouter | Planned |
-| Aggregators | AgentRouter, FreeGG | Planned |
-| Other providers | DeepSeek | Planned |
+| First-party agents | OpenAI Codex | Existing app-server quota adapter |
+| First-party agents | Claude Code | Local OAuth credentials and Anthropic quota usage |
+| Coding clients | Pi | Local auth.json; OpenAI Codex and Anthropic OAuth quota usage |
+| Coding clients | OpenCode | OpenAI/Anthropic OAuth, Go session/weekly/monthly allowances, active Console workspace budgets and enabled free models |
 
-Artwork and provider visibility entries do not imply working quota integrations. See [account discovery](docs/CONFIGURATION.md#account-discovery).
+These adapters are development work. A client card identifies where the account was found; quotas belong to the upstream account and may be shared across clients. OpenCode free models show enabled models, seven-day local activity and observed limit errors. Retry countdowns appear only when OpenCode saved a retry delay. Remaining free allowance stays unknown. Analytics includes OpenCode model totals and local Pi/Claude usage alongside the Codex charts. Other API-key billing and OAuth providers do not produce invented quota percentages. See [account discovery](docs/CONFIGURATION.md#account-discovery).
 
 ## Quick start
 
@@ -178,7 +177,7 @@ Linux is the supported and distributed app. The installer and cache format retai
 
 ## Privacy & security
 
-aether queries the native Codex app-server and reads local account configuration. It does not forward inference requests, upload quota history or collect telemetry. Codex may refresh its own authentication. Local caches contain account names, paths and quota percentages; treat them as private. Optional assets and update checks contact upstream services.
+Aether reads local client configuration and usage metadata, and queries the supported account quota endpoints. It does not forward inference requests, upload quota history or collect telemetry. Codex may refresh its own authentication. Local caches contain account names, paths and quota percentages; treat them as private. Optional assets and update checks contact upstream services.
 
 See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-data).
 
@@ -196,7 +195,7 @@ See [security policy](SECURITY.md) and [local data](docs/CONFIGURATION.md#local-
 
 ## Roadmap
 
-- [ ] Expand quota adapters beyond Codex; validate managed T3 credentials.
+- [ ] Broaden provider quota coverage and validate managed T3 credentials.
 - [ ] Refine the Linux drawer, settings and compositor integration.
 - [ ] Add signed distribution, dependency auditing and reproducible release builds.
 - [ ] Validate scroll interaction and reduced-motion behaviour.
