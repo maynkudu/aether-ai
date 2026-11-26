@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 p="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/aether"
-mkdir -p "$p/icons" "$p/brand-icons"
+mkdir -p "$p/icons" "$p/brand-icons" "$p/provider-logos"
+install -m644 provider-logos/*.png "$p/provider-logos/"
 args=()
 fetch_fonts=false
 for arg in "$@"; do

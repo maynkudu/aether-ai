@@ -104,7 +104,7 @@ jobs:
           tar -xf "$stage/source.tar" -C "$stage"
           cp Cargo.lock "$stage/aether-ai/"
           tar -czf dist/aether-source.tar.gz -C "$stage" aether-ai
-          tar -czf dist/aether-arch-linux-x86_64.tar.gz -C "$GITHUB_WORKSPACE/target/release" aether -C "$GITHUB_WORKSPACE" shell/shell.qml scripts/update.py systemd LICENSE README.md CHANGELOG.md Cargo.lock docs/assets/logo.svg docs/assets/logo.png docs/assets/branding
+          tar -czf dist/aether-arch-linux-x86_64.tar.gz -C "$GITHUB_WORKSPACE/target/release" aether -C "$GITHUB_WORKSPACE" shell/shell.qml shell/provider-logos shell/BRAND-ASSETS.md scripts/update.py systemd LICENSE README.md CHANGELOG.md Cargo.lock docs/assets/logo.svg docs/assets/logo.png docs/assets/branding
           # Check the actual archives before uploading them.
           tar -tzf dist/aether-source.tar.gz > "$stage/source-files.txt"
           tar -tzf dist/aether-arch-linux-x86_64.tar.gz > "$stage/binary-files.txt"
@@ -112,6 +112,7 @@ jobs:
           grep -Fx 'aether-ai/shell/shell.qml' "$stage/source-files.txt"
           grep -Fx 'aether' "$stage/binary-files.txt"
           grep -Fx 'shell/shell.qml' "$stage/binary-files.txt"
+          grep -Fx 'shell/provider-logos/pi-dark.png' "$stage/binary-files.txt"
           grep -Fx 'systemd/aether-ui.service' "$stage/binary-files.txt"
           (cd dist && sha256sum *.tar.gz > SHA256SUMS && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4

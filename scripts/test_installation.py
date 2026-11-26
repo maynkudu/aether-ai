@@ -26,6 +26,7 @@ class InstallerTests(unittest.TestCase):
             destination = self.source / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, destination)
+        shutil.copytree(ROOT / "shell/provider-logos", self.source / "shell/provider-logos")
         self.tools = self.directory / "tools"
         self.tools.mkdir()
         self.log = self.directory / "commands.jsonl"
@@ -62,6 +63,8 @@ elif name=="systemctl" and args==["--user","restart","aether.service"] and os.en
         units = self.directory / "config/systemd/user"
         self.assertEqual((units / "aether-ui.service").read_text(), (ROOT / "systemd/aether-ui.service").read_text())
         self.assertTrue((self.directory / "bin/aether").is_file())
+        for logo in (ROOT/"shell/provider-logos").glob("*.png"):
+            self.assertEqual((self.directory/"config/quickshell/aether/provider-logos"/logo.name).read_bytes(),logo.read_bytes())
         commands = self.commands()
         self.assertIn(["systemctl", "--user", "enable", "aether.service"], commands)
         self.assertIn(["systemctl", "--user", "enable", "aether-ui.service", "aether-update.timer"], commands)
@@ -137,6 +140,13 @@ class UpdaterRollbackTests(unittest.TestCase):
         with patch.object(self.updater, "restart"):
             self.updater.rollback(self.current)
         self.assertEqual((self.updater.UNITS / "aether-ui.service").read_bytes(), b"previous")
+
+    def test_logo_archive_restores_all_provider_artwork(self):
+        self.archive(len(self.updater.targets()))
+        self.assertTrue(self.updater.rollback_available())
+        with patch.object(self.updater, "restart"):
+            self.updater.rollback(self.current)
+        self.assertTrue(all(path.read_bytes() == b"previous" for path in self.updater.targets()))
 
     def test_restart_failure_restores_current_installation(self):
         self.archive(7)

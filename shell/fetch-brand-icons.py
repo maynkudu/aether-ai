@@ -154,7 +154,6 @@ def fetch(dest):
         ("opencode", RAW + "anomalyco/models.dev/dev/providers/opencode/logo.svg", "2e9468f6ad10aca915d92b7d4128eceec2b8b045", True),
         ("pi", "https://pi.dev/favicon.svg", None, True),
         ("openrouter", RAW + "OpenRouterTeam/sign-in-with-openrouter/main/public/openrouter-logo.svg", "c86d1c8db9dc62b55b707b07b517c61c008df74c", True),
-        ("agentrouter", RAW + "agentrouter-org/docs/main/public/img/agent-logo.png", "5357ce1b16d39638ccb3e8afd2445caee67aa272", False),
     ]
     for slug, url, sha, adaptive in assets:
         try:

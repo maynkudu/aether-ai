@@ -125,6 +125,8 @@ The installer enables the quota daemon and a separate graphical-session service.
 
 Use `bash install.sh` to skip optional artwork and font downloads. [Installation details](docs/LINUX.md#phase-3-install-aether-and-enable-startup).
 
+Run the full source installer once when upgrading a build that predates bundled client logos. This installs the assets and the current updater.
+
 ### Phase 4: usage
 
 Hover over the top-right corner to open the drawer, then select Settings. You can also open the control centre from a terminal:

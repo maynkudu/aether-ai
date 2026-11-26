@@ -1,0 +1,27 @@
+{
+  "codex": {
+    "source": "https://raw.githubusercontent.com/openai/openai-cookbook/4a85c3018d20ceef48bf7549450c567896501bf9/examples/voice_solutions/realtime_translation_guide/livekit-translation-demo/public/brand/chatgpt-blossom-white.svg",
+    "sourceSha256": "01d158767c4eec0e47bd617e67759c33da0accd1438be1a8d29dfdb99ce87285",
+    "darkSha256": "443750ffb708ca55b5598249733204415c78f710d7ad7c3d0f405188a94a0da8",
+    "lightSha256": "39f0daa789fa8ee5a632b994c281ad9d72c202111e3c0dd949fd5a606cd9a01f"
+  },
+  "claude": {
+    "source": "https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cd02a42d9-Vq_H3mgS.svg",
+    "sourceSha256": "b150888bc7257af83e3b85d3c2be4294f88986026f8168f6c12fc1fde6697350",
+    "darkSha256": "baf45a2cf8d0a4c0e68d00d501370208fd920cacc80284f517d21026970102b6",
+    "lightSha256": "dfaae2e6710a41196ee22349da561e7690aa2a3659d07ed31d8dac5cc59a77fe"
+  },
+  "opencode": {
+    "source": "https://raw.githubusercontent.com/anomalyco/models.dev/dev/providers/opencode/logo.svg",
+    "sourceSha256": "d24c25ec9e90d6b0da823a94a64a2ca19398c794ae7e2eaf7d2699b9757d5df3",
+    "darkSha256": "d230db72a0726360b42cf60d959d077633c45df93e448a9d4e53a480fc74c8e8",
+    "lightSha256": "f874230420e774ea9248261e008415248350bb0acdaef6c41b3efe797553bb5d"
+  },
+  "pi": {
+    "source": "https://pi.dev/favicon.svg",
+    "sourceSha256": "d266b2c1d2c7bf169ca30d438963b176fba16fea6263b9ac30c8302f34ad7ce7",
+    "darkSha256": "c1f8f429d37f643fc3deebfe1ed7b7010533a7afb42a5d3d4240f8a748adf40a",
+    "lightSha256": "284bd4a2644ad819598d999d3570c1bdc2932e0e13e8809aa09e448d51327696",
+    "themeResolution": "Resolve the original prefers-color-scheme CSS for each raster variant."
+  }
+}

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Validate Wisp SVGs and normalized motion tracks without third-party packages."""
 import json
+import hashlib
 import pathlib
+import struct
 import xml.etree.ElementTree as ET
 root = pathlib.Path(__file__).resolve().parents[1]
 assets = root / "docs/assets"
@@ -29,3 +31,14 @@ for name, points in data["tracks"].items():
 for path in (assets / "logo.png", brand / "wisp-body.png"):
     assert path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 print("Wisp geometry, SVGs, PNG signatures and motion tracks validated.")
+
+logos = root / "shell/provider-logos"
+sources = json.loads((logos / "sources.json").read_text())
+assert set(sources) == {"codex", "claude", "opencode", "pi"}
+for name, source in sources.items():
+    for variant in ("dark", "light"):
+        data = (logos / f"{name}-{variant}.png").read_bytes()
+        assert data.startswith(b"\x89PNG\r\n\x1a\n")
+        assert struct.unpack(">II", data[16:24]) == (192, 192)
+        assert hashlib.sha256(data).hexdigest() == source[f"{variant}Sha256"]
+print("All eight bundled client logos match their recorded hashes and dimensions.")

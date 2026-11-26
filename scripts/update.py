@@ -59,14 +59,17 @@ def installed():
 def targets():
     return [BIN/"aether", BIN/"aether-update", UNITS/"aether.service",
             UNITS/"aether-update.service", UNITS/"aether-update.timer", SHELL/"shell.qml",
-            UNITS/"aether-ui.service"]
+            UNITS/"aether-ui.service"] + [SHELL/"provider-logos"/name for name in provider_logo_names()]
+
+def provider_logo_names():
+    return [f"{provider}-{variant}.png" for provider in ("codex","claude","opencode","pi") for variant in ("dark","light")]
 
 def rollback_available():
     try:
         with zipfile.ZipFile(ROLLBACK) as archive:
             meta = json.loads(archive.read("manifest.json"))
         return (meta.get("to") == installed() and bool(SHA.fullmatch(meta.get("from","")))
-                and len(meta.get("files",[])) in {len(targets())-1,len(targets())})
+                and len(meta.get("files",[])) in {6,7,len(targets())})
     except (OSError,ValueError,KeyError,zipfile.BadZipFile):
         return False
 
@@ -176,7 +179,7 @@ def rollback(current):
         meta=json.loads(archive.read("manifest.json"))
         previous=meta.get("from","")
         entries=meta.get("files",[])
-        if meta.get("to")!=current or not SHA.fullmatch(previous) or len(entries) not in {len(targets())-1,len(targets())}:
+        if meta.get("to")!=current or not SHA.fullmatch(previous) or len(entries) not in {6,7,len(targets())}:
             raise RuntimeError("previous build does not match installed commit")
         old=[(dst,archive.read(str(i)) if entries[i]["exists"] else None,
               int(entries[i]["mode"]) & 0o777) for i,dst in enumerate(targets()[:len(entries)])]
@@ -220,6 +223,11 @@ def apply(target, current):
         payload = [(dst,src.read_bytes(),mode) for src,dst,mode in files]
         if not payload[0][1] or b"ShellRoot" not in payload[-1][1]:
             raise RuntimeError("incomplete build")
+        for name in provider_logo_names():
+            data = (source/"shell/provider-logos"/name).read_bytes()
+            if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("invalid provider logo")
+            payload.append((SHELL/"provider-logos"/name,data,0o644))
         backup = snapshot()
         save_previous(backup,current,target)
         try:
