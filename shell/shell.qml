@@ -602,7 +602,7 @@ ShellRoot {
     MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: 2.2; curve: Easing.Linear }
     property real settingsReveal: quintic(settingsSpring.value / 0.62)
     property real settingsContentReveal: quintic((settingsSpring.value - 0.44) / 0.30)
-    MotionValue { id: pageSpring; targetValue: 1; factor: 1.05; proportional: true; curve: Easing.Linear }
+    MotionValue { id: pageSpring; targetValue: root.settingsOpen && root.settingsContentReveal > 0.01 ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
     MotionValue { id: pageDataClock; targetValue: root.settingsOpen ? 1 : 0; factor: 1.40; dataMotion: true; proportional: true; curve: Easing.Linear }
     function heightProgress(p) { return p }
     function pageStage(i) {
@@ -1458,7 +1458,7 @@ ShellRoot {
         transform: Translate { y: (1 - apiKeyCard.opacity) * 4 }
         ColumnLayout {
             id: compactContent
-            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 13
+            anchors.fill: parent; anchors.margins: 13
             spacing: 8
             RowLayout {
                 id: apiKeyDetails
@@ -1472,7 +1472,7 @@ ShellRoot {
                 ColumnLayout {
                     Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
                     opacity: root.stagger(apiKeyCard.revealStage + 1)
-                    MText { text: apiKeyCard.width < 240 ? apiKeyCard.modelData.name : apiKeyCard.modelData.provider; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                    MText { text: apiKeyCard.width < 240 ? apiKeyCard.modelData.name : apiKeyCard.modelData.provider; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
                     MText { text: apiKeyCard.width < 240 ? apiKeyCard.modelData.provider + (apiKeyCard.modelData.authKind === "free" ? " · " + root.compactValue(apiKeyCard.modelData) : root.authLabel(apiKeyCard.modelData) ? " · " + root.authLabel(apiKeyCard.modelData) : "") : apiKeyCard.modelData.name; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                 }
                 ColumnLayout {
@@ -1481,8 +1481,12 @@ ShellRoot {
                     MText { visible: apiKeyCard.width >= 240; text: root.compactValue(apiKeyCard.modelData); font.pixelSize: 10; color: root.muted; Layout.alignment: Qt.AlignRight }
                 }
             }
-            AccountUsageReading { visible: apiKeyCard.modelData.authKind !== "free" && !(apiKeyCard.modelData.windows || []).length && (!root.usageReady || root.hasUsageData(root.accountUsage(apiKeyCard.modelData))); account: apiKeyCard.modelData; compact: true; opacity: root.stagger(apiKeyCard.revealStage + 2) }
-            FreeModelActivity { compact: true; visible: apiKeyCard.modelData.authKind === "free"; account: apiKeyCard.modelData; opacity: root.stagger(apiKeyCard.revealStage + 2) }
+            AccountUsageReading {
+                visible: !(apiKeyCard.modelData.windows || []).length && (!root.usageReady || root.hasUsageData(root.accountUsage(apiKeyCard.modelData)))
+                account: apiKeyCard.modelData; compact: true; monitor: true
+                Layout.fillHeight: true
+                opacity: root.stagger(apiKeyCard.revealStage + 2)
+            }
             Repeater {
                 model: apiKeyCard.modelData.windows || []
                 delegate: ColumnLayout {
@@ -1751,19 +1755,22 @@ ShellRoot {
         id: accountReading
         required property var account
         property bool compact: false
+        property bool monitor: false
         property bool narrow: compact && width < 220
         property var usage: root.accountUsage(account)
         Layout.fillWidth: true; spacing: 7
         GridLayout {
             visible: !!accountReading.usage.available
-            columns: accountReading.narrow ? 1 : 2; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 4
+            columns: accountReading.narrow ? 1 : 2; Layout.fillWidth: true; Layout.fillHeight: accountReading.monitor; columnSpacing: 16; rowSpacing: accountReading.monitor ? 16 : 8
             Repeater {
                 model: [{value:root.countText((accountReading.usage.totals || {}).totalTokens),label:(accountReading.usage.totals || {}).tokensComplete === false ? "Known tokens" : "Tokens"}, {value:root.usageCost(accountReading.usage.totals || {}),label:(accountReading.usage.totals || {}).costComplete === false ? "Known cost" : "Usage cost"}]
                 delegate: GridLayout {
                     required property var modelData
-                    columns: accountReading.narrow ? 2 : 1; Layout.fillWidth: true; columnSpacing: 6; rowSpacing: 3
-                    MText { text: modelData.value; font.pixelSize: accountReading.narrow ? 14 : accountReading.compact ? 18 : 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                    MText { text: modelData.label; font.pixelSize: 10; color: root.muted; Layout.fillWidth: !accountReading.narrow }
+                    columns: 1; Layout.fillWidth: true; Layout.fillHeight: accountReading.monitor; columnSpacing: 6; rowSpacing: 4
+                    Item { visible: accountReading.monitor; Layout.fillHeight: true }
+                    MText { objectName: "usage-value"; text: modelData.value; font.pixelSize: accountReading.monitor ? (accountReading.narrow ? 23 : 26) : accountReading.compact ? 22 : 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                    MText { text: modelData.label; font.pixelSize: 11; color: root.muted; Layout.fillWidth: true }
+                    Item { visible: accountReading.monitor; Layout.fillHeight: true }
                 }
             }
         }
@@ -1774,7 +1781,7 @@ ShellRoot {
             SkeletonLine { Layout.preferredWidth: parent.width*0.65; implicitHeight: 9 }
         }
         MText {
-            visible: !!accountReading.usage.available
+            visible: !!accountReading.usage.available && !accountReading.monitor
             text: (accountReading.usage.periodDays===7 ? "Last 7 days" : root.usagePeriodText)+" · "+(accountReading.usage.scope || "Local usage")+(accountReading.account.provider === "Claude Code" && (accountReading.usage.totals || {}).tokensComplete === false ? " · input and cache only" : "")+(accountReading.usage.partial ? " · partial" : "")
             font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
         }
@@ -1782,32 +1789,6 @@ ShellRoot {
             visible: !accountReading.usage.available && root.usageReady
             text: root.analyticsError ? "Local usage unavailable." : "No local usage recorded for this period."
             font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
-        }
-    }
-    component FreeModelActivity: ColumnLayout {
-        id: freeActivity
-        property bool compact: false
-        required property var account
-        Layout.fillWidth: true; spacing: 7
-        AccountUsageReading { account: freeActivity.account; compact: true }
-        Repeater {
-            model: root.freeLimitModels(freeActivity.account).slice(0,freeActivity.compact ? 1 : 2)
-            delegate: ColumnLayout {
-                required property var modelData
-                Layout.fillWidth: true; spacing: 2
-                MText { text: modelData.name; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
-                MText { text: root.freeLimitText(modelData); font.pixelSize: 10; color: modelData.observation.retryAt > root.now ? root.primary : root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
-            }
-        }
-        MText { text: freeActivity.account.observationsStatus === "unavailable" ? "Limit history unavailable" : "Free allowance remaining is unknown"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
-        Button {
-            id: usageButton
-            implicitWidth: 96; implicitHeight: freeActivity.compact ? 24 : 28
-            hoverEnabled: true; focusPolicy: Qt.StrongFocus
-            Accessible.name: "View OpenCode usage"
-            onClicked: root.openSettings("Analytics")
-            contentItem: MText { text: "View usage"; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-            background: Rectangle { radius: 12; color: usageButton.hovered || usageButton.down ? root.track : root.buttonColor; border.width: usageButton.visualFocus ? 2 : 0; border.color: root.primary }
         }
     }
     component OverviewAccountCard: Rectangle {
@@ -1821,7 +1802,7 @@ ShellRoot {
         implicitHeight: Math.max(sharedUsage ? 64 : hasLimits ? 140 : 88,overviewDetails.implicitHeight+24); radius: 18; color: root.cardColor
         ColumnLayout {
             id: overviewDetails
-            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12; spacing: 8
+            anchors.fill: parent; anchors.margins: 12; spacing: 8
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
                 ProviderIcon { name: root.logo(overviewAccount.account.provider); Layout.preferredWidth: 22; Layout.preferredHeight: 22 }
@@ -1847,12 +1828,13 @@ ShellRoot {
                         }
                         Rectangle {
                             Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: root.track
-                            Rectangle { width: parent.width*Math.max(0,root.remaining(modelData))/100; height: parent.height; radius: 2; color: root.primary }
+                            Rectangle { width: parent.width*Math.max(0,root.remaining(modelData))/100*root.pageDataProgress(3); height: parent.height; radius: 2; color: root.primary }
                         }
                         MText { text: root.resetText(modelData.reset); font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
                     }
                 }
             }
+            Item { Layout.fillHeight: true }
             AccountUsageReading { visible: !overviewAccount.sharedUsage && (root.hasUsageData(overviewAccount.usage) || !overviewAccount.hasLimits || !root.usageReady); account: overviewAccount.account; usage: overviewAccount.usage; compact: true }
 
         }
@@ -1860,6 +1842,7 @@ ShellRoot {
     component OverviewAccountGroup: ColumnLayout {
         id: accountGroup
         required property var group
+        property int revealIndex: 0
         Layout.fillWidth: true; Layout.alignment: Qt.AlignTop; spacing: 10
         RowLayout {
             Layout.fillWidth: true; spacing: 8
@@ -1884,6 +1867,9 @@ ShellRoot {
             delegate: GridLayout {
                 id: accountRow
                 required property var modelData
+                required property int index
+                opacity: root.pageStage(accountGroup.revealIndex + index + 4)
+                transform: Translate { y: 8 * (1 - accountRow.opacity) }
                 columns: accountGroup.width>=440 ? modelData.length : 1
                 uniformCellWidths: true; uniformCellHeights: true
                 Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
@@ -2089,7 +2075,7 @@ ShellRoot {
                                             ColumnLayout {
                                                 Layout.fillWidth: true; spacing: 4
                                                 Description { text: root.overviewTotals.tokensComplete ? "Tokens" : "Known tokens"; font.pixelSize: 12 }
-                                                Item { Layout.fillWidth: true; implicitHeight: 46; MText { visible: root.usageReady; text: root.overviewClients.length ? root.countText(root.overviewTotals.totalTokens) : "—"; font.pixelSize: 38; font.weight: Font.DemiBold; font.letterSpacing: -1; width: parent.width; elide: Text.ElideRight } SkeletonLine { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; width: Math.min(parent.width*0.72,150); height: 26; visible: !root.usageReady } }
+                                                Item { Layout.fillWidth: true; implicitHeight: 46; MText { visible: root.usageReady; text: root.overviewClients.length ? root.countText(root.overviewTotals.totalTokens*root.pageDataProgress(0)) : "—"; font.pixelSize: 38; font.weight: Font.DemiBold; font.letterSpacing: -1; width: parent.width; elide: Text.ElideRight } SkeletonLine { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; width: Math.min(parent.width*0.72,150); height: 26; visible: !root.usageReady } }
                                             }
                                             ColumnLayout {
                                                 Layout.fillWidth: true; spacing: 4
@@ -2116,8 +2102,9 @@ ShellRoot {
                                     delegate: OverviewAccountGroup {
                                         required property var modelData
                                         required property int index
-                                        group: modelData
+                                        group: modelData; revealIndex: index
                                         opacity: root.pageStage(index+4)
+                                        transform: Translate { y: 8 * (1 - root.pageStage(index+4)) }
                                     }
                                 }
                                 Description { visible: !root.accounts.length; text: "No visible accounts. Check provider preferences." }

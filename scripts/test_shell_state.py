@@ -109,6 +109,35 @@ Timer {
         self.assertLess(result['menuPartial'], result['menuClose'])
         self.assertEqual(result['menuReduced'], 0)
 
+    def test_page_motion_starts_when_menu_content_is_revealed(self):
+        functions = '\n'.join(qml_block(SOURCE, 'function ' + name + '(')
+                              for name in ['motionDuration', 'dataDuration', 'unit', 'quintic'])
+        component = qml_block(SOURCE, 'component MotionValue: Item')
+        clocks = '\n'.join(qml_block(SOURCE, marker) for marker in
+                           ['MotionValue { id: settingsSpring;', 'MotionValue { id: pageSpring;'])
+        result = run_qml('''
+property bool settingsOpen:false
+property real settingsContentReveal:quintic((settingsSpring.value-.44)/.30)
+property int ticks:0
+property var readings:({covered:true,visibleMotion:false})
+QtObject { id:prefs; property string motionStyle:"smooth"; property int motionMs:180; property int dataMotionMs:200 }
+''' + functions + component + clocks + '''
+Component.onCompleted: settingsOpen=true
+Timer { interval:10; running:true; repeat:true; onTriggered: {
+    root.ticks++
+    if(settingsSpring.value<.44 && pageSpring.value>0) root.readings.covered=false
+    if(root.settingsContentReveal>.05 && pageSpring.value>0 && pageSpring.value<.95) root.readings.visibleMotion=true
+    if(root.ticks===65) {prefs.motionStyle="reduced";pageSpring.jump(0)}
+    if(root.ticks===67) {
+        root.readings.reduced=pageSpring.value
+        console.log("SHELL_CHECK "+JSON.stringify(root.readings));Qt.quit()
+    }
+}}
+''')
+        self.assertTrue(result['covered'])
+        self.assertTrue(result['visibleMotion'])
+        self.assertEqual(result['reduced'], 1)
+
     def test_real_process_loading_and_failure_keep_the_last_successful_reading(self):
         backend = 'import json,sys,time;time.sleep(0.15);sys.exit(1) if sys.argv[1]!="7" else print(json.dumps({"samples":[{"id":"recorded"}],"clients":[],"openCode":{"status":"ok"}}))'
         process = qml_block(SOURCE, 'Process {\n        id: analyticsReader')
