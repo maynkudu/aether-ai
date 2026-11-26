@@ -1,38 +1,30 @@
+# aether.ai
+
+<p align="center"><strong>See your Codex session and weekly quota on your Linux desktop.</strong><br>
+A local monitor with a top-right quota drawer, account view, and private usage history.</p>
+
 <div align="center">
-<img src="docs/assets/banner.svg" alt="aether.ai — Intelligence, within limits." width="100%">
 
 [![CI and releases](https://github.com/maynkudu/aether-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/maynkudu/aether-ai/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/maynkudu/aether-ai)](https://github.com/maynkudu/aether-ai/stargazers)
 [![Status](https://img.shields.io/badge/status-early%20development-lightgrey)](CHANGELOG.md)
-[![Rust](https://img.shields.io/badge/core-Rust-252525?logo=rust)](Cargo.toml)
+[![Linux / Wayland](https://img.shields.io/badge/platform-Linux%20%2F%20Wayland-252525)](#platform)
 
-**A local-first AI quota monitor, designed to stay out of your way.**
-
-[Website source](apps/web) · [Quick start](#quick-start) · [Features](#features) · [Platform](#platform) · [Docs](#documentation) · [Contribute](#contributing)
+[Quick start](#quick-start) · [Features](#features) · [Provider support](#provider-support) · [Documentation](#documentation) · [Contribute](#contributing)
 
 </div>
 
----
-
-aether.ai brings your AI usage limits into one glanceable desktop interface. Track remaining Codex quota across multiple accounts, see how limits change over time, and keep your workflow in focus — without an inference proxy, hosted dashboard or telemetry.
-
-Built for Linux / Wayland with a Rust core, a Quickshell overlay and a systemd user daemon.
+Track remaining Codex quota across local accounts, see session and weekly reset times, and review up to 90 days of locally recorded history. Aether runs on Linux / Wayland with a Rust daemon and Quickshell interface. It sends no telemetry and does not proxy inference requests.
 
 > [!NOTE]
-> **Early development (v0.2.0).** Aether is currently Linux-only, with Arch Linux and Hyprland as the primary targets. Codex is the only implemented quota adapter. Windows and macOS development and distribution are paused. No stable GitHub release has been published yet.
+> **Early development (v0.2.0).** Linux / Wayland is the only supported target. Arch Linux x86_64 and Hyprland are the primary tested setup. Codex is the only implemented quota adapter. Claude Code, Grok, and other providers are planned. Windows and macOS prototypes are paused. No stable GitHub release is available yet.
+
+## The current Linux interface
 
 <img src="docs/assets/interface.svg" alt="Illustration of aether control centre, quota cards, circular drawer and history" width="100%">
 
-<sub>Illustrative interface artwork with sample data, not a screenshot. Actual layout and colours depend on preferences.</sub>
-
-## Meet Wisp
-
-<img src="docs/assets/branding/wisp-light.svg" width="76" align="right" alt="Wisp, the aether.ai mascot">
-
-Wisp is our little companion for keeping AI quotas in view. The project is still **aether.ai**; Wisp is its mascot and visual identity. The original vector silhouette works at small icon sizes and in both monochrome themes. The native apps animate Wisp with occasional blinking, floating, breathing, expressions and a gentle halo. Animation can be disabled in Appearance; Linux Reduced motion also freezes Wisp.
-
-[Brand assets and motion guide](docs/BRANDING.md) · [Animated SVG (download and open in browser)](docs/assets/branding/wisp-animated-light.svg)
+The top-right drawer keeps quotas in view. The control centre holds account settings and local history. This illustration uses sample data, not a live screenshot.
 
 ## Features
 
@@ -47,6 +39,14 @@ Wisp is our little companion for keeping AI quotas in view. The project is still
 <img src="docs/assets/palettes.svg" alt="Seven built-in colour schemes and dynamic Caelestia palette" width="100%">
 
 Linux supports Liquid, Smooth and Reduced motion, with opaque theme-aware surfaces and adjustable trackpad speed. Caelestia is optional and disabled when its prerequisites are missing. See [configuration](docs/CONFIGURATION.md).
+
+## Meet Wisp
+
+<img src="docs/assets/branding/wisp-light.svg" width="76" align="right" alt="Wisp, the aether.ai mascot">
+
+Wisp is Aether's mascot. The product name remains **aether.ai**. Linux supports optional animation and reduced motion.
+
+[Brand assets and motion guide](docs/BRANDING.md) · [Animated Wisp SVG](docs/assets/branding/wisp-animated-light.svg)
 
 ## Platform
 
@@ -172,9 +172,9 @@ See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engi
 
 ## Architecture
 
-<img src="docs/assets/architecture.svg" alt="Shared Rust quota core with Linux, Windows and macOS frontends" width="100%">
+<img src="docs/assets/architecture.svg" alt="Shared Rust quota core with the supported Linux app and paused Windows and macOS prototypes" width="100%">
 
-One repository, one shared core, platform-specific integrations. The Linux installer and cache format retain their existing layout.
+Linux is the only supported and distributed app today. The Windows and macOS frontends in this diagram are paused prototypes. The Linux installer and cache format retain their existing layout.
 
 [Explore the architecture →](docs/ARCHITECTURE.md)
 
