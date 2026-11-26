@@ -1,4 +1,4 @@
-use aether_core::{discover,history,refresh_and_record,usage};
+use aether_core::{analytics,discover,history,refresh_and_record,usage};
 use std::time::Duration;
 #[tokio::main]
 async fn main() {
@@ -9,9 +9,13 @@ async fn main() {
             let days=std::env::args().nth(2).and_then(|s|s.parse::<u64>().ok()).unwrap_or(7).clamp(1,90);
             println!("{}",history::query(days));
         },
+        Some("analytics") => {
+            let days=std::env::args().nth(2).and_then(|s|s.parse::<u64>().ok()).unwrap_or(7).clamp(1,90);
+            println!("{}",analytics::query(days));
+        },
         Some("--version")|Some("version") => println!("{}",env!("CARGO_PKG_VERSION")),
         Some("accounts") => for(p,n)in discover(){println!("{n}\t{}",p.display());},
         Some("usage")|Some("status") => println!("{}",usage()),
-        _ => eprintln!("aether [daemon|refresh|accounts|usage|status|history|version]")
+        _ => eprintln!("aether [daemon|refresh|accounts|usage|status|history|analytics|version]")
     }
 }

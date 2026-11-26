@@ -1,5 +1,6 @@
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Wayland
 import QtQuick
 import QtQuick.Layouts
@@ -57,7 +58,7 @@ ShellRoot {
     property var shortcutActions: [
         {id:"toggle",label:"Toggle dashboard",note:"Open or close the quota drawer",mods:"SUPER",key:"U"},
         {id:"settings",label:"Toggle control centre",note:"Open or close settings",mods:"SUPER SHIFT",key:"U"},
-        {id:"analytics",label:"Open analytics",note:"Jump directly to quota history",mods:"SUPER ALT",key:"U"},
+        {id:"analytics",label:"Open analytics",note:"Jump directly to token usage",mods:"SUPER ALT",key:"U"},
         {id:"refresh",label:"Refresh local view",note:"Read the existing cache, not the provider API",mods:"Disabled",key:"R"},
         {id:"dismiss",label:"Dismiss aether",note:"Close both surfaces",mods:"Disabled",key:"Escape"}
     ]
@@ -115,7 +116,7 @@ ShellRoot {
         pageScroll.contentY = pageScroll.originY
         // Reset again after the new page layout has had a chance to settle.
         Qt.callLater(function() { if (root.settingsTab === name) pageScroll.contentY = pageScroll.originY })
-        if (name === "Analytics") refreshHistory()
+        if (name === "Analytics") refreshAnalytics()
     }
     function openSettings(name) {
         hide()
@@ -124,7 +125,7 @@ ShellRoot {
     }
     function refreshView() {
         if (!reader.running) reader.running = true
-        if (settingsOpen) refreshHistory()
+        if (settingsOpen) refreshAnalytics()
     }
     function dismissAll() { if (activeDropdown) activeDropdown.close(); settingsOpen = false; hide() }
     property var updateInfo: ({message:"No update check yet", installed:"", candidate:""})
@@ -155,29 +156,100 @@ ShellRoot {
         } }
     }
     property string analyticsPeriod: "7"
-    property string analyticsMetric: "session"
-    property var history: []
-    property string analyticsStatus: "No recorded history"
+    property string analyticsMetric: "tokens"
+    property var analyticsSamples: []
+    property string analyticsStatus: "No local token usage found"
     Process {
-        id: historyReader
-        command: [Quickshell.env("HOME") + "/.local/bin/aether", "history", root.analyticsPeriod]
+        id: analyticsReader
+        command: [Quickshell.env("HOME") + "/.local/bin/aether", "analytics", root.analyticsPeriod]
         stdout: StdioCollector { onStreamFinished: {
             try {
                 let data = JSON.parse(text)
-                root.history = data.samples || []
-                root.analyticsStatus = root.history.length ? "Local quota snapshots · " + root.history.length + " samples" : "No recorded history yet"
-            } catch(e) { root.history = []; root.analyticsStatus = "History unavailable; install the updated backend" }
+                root.analyticsSamples = data.samples || []
+                root.analyticsStatus = root.analyticsSamples.length ? "Local Codex session logs" : "No local token usage found for this period"
+            } catch(e) { root.analyticsSamples = []; root.analyticsStatus = "Token usage unavailable; install the updated backend" }
         } }
     }
-    function refreshHistory() { if (!historyReader.running) historyReader.running = true }
-    onAnalyticsPeriodChanged: { refreshHistory(); if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0) }
-    onAnalyticsMetricChanged: if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0)
-    onSettingsOpenChanged: if (settingsOpen) { pageSpring.jump(0); pageDataClock.jump(0); if (!reader.running) reader.running = true; refreshHistory(); if (settingsTab === "Updates") runUpdater("status") } else if (activeDropdown) activeDropdown.close()
-    Timer { interval: 30000; repeat: true; running: root.settingsOpen; onTriggered: root.refreshHistory() }
-    function series() {
-        let minutes = analyticsMetric === "weekly" ? 10080 : 300
-        return history.filter(a => !hiddenProviders.includes(logo(a.provider)) && !hiddenAccounts.includes(String(a.id)) && Number(a.minutes) === minutes)
+    function refreshAnalytics() { if (!analyticsReader.running) analyticsReader.running = true }
+    property var analyticsRows: {
+        return analyticsSamples.filter(a => !hiddenProviders.includes(logo(a.provider)) && !hiddenAccounts.includes(String(a.id)))
     }
+    property var analyticsTotals: {
+        let result = {input:0,cached:0,output:0,reasoning:0,total:0,requests:0,cost:0,costComplete:true}
+        for (let sample of analyticsRows) {
+            result.input += Number(sample.inputTokens || 0)
+            result.cached += Number(sample.cachedInputTokens || 0)
+            result.output += Number(sample.outputTokens || 0)
+            result.reasoning += Number(sample.reasoningTokens || 0)
+            result.total += Number(sample.totalTokens || 0)
+            result.requests += Number(sample.requestCount || 0)
+            if (typeof sample.estimatedCostUsd === "number") result.cost += sample.estimatedCostUsd
+            else result.costComplete = false
+        }
+        return result
+    }
+    property var analyticsAccounts: {
+        let grouped = {}
+        for (let sample of analyticsRows) {
+            let id = String(sample.id)
+            if (!grouped[id]) grouped[id] = {id:id,name:sample.name,authKind:sample.authKind,input:0,output:0,requests:0}
+            grouped[id].input += Number(sample.inputTokens || 0)
+            grouped[id].output += Number(sample.outputTokens || 0)
+            grouped[id].requests += Number(sample.requestCount || 0)
+        }
+        return Object.values(grouped).sort((a,b) => b.input + b.output - a.input - a.output)
+    }
+    property var analyticsProviders: Array.from(new Set(analyticsRows.map(sample => String(sample.provider || "Other")))).sort()
+    function providerColor(provider) {
+        switch (logo(provider)) {
+        case "codex": return primary
+        case "claude": return "#ef9664"
+        case "opencode": return "#70b4d8"
+        case "grok": return "#9b91e5"
+        case "pi": return "#57b896"
+        case "openrouter": return "#b68bdd"
+        case "deepseek": return "#4c9bd1"
+        case "agentrouter": return "#e6bb65"
+        case "freegg": return "#8fb879"
+        default: return weeklyColor
+        }
+    }
+    property var analyticsPlot: {
+        if (analyticsMetric === "cost" && !analyticsTotals.costComplete) return []
+        let interval = analyticsPeriod === "1" ? 3600 : 86400
+        let now = Math.floor(Date.now()/1000)
+        let start = Math.floor((now-Number(analyticsPeriod)*86400)/interval)*interval
+        let end = Math.floor(now/interval)*interval
+        return analyticsProviders.map(provider => {
+            let values = ({})
+            for (let sample of analyticsRows) {
+                if (String(sample.provider || "Other") !== provider) continue
+                let time = Math.floor(Number(sample.time)/interval)*interval
+                let value = analyticsMetric === "cost" ? sample.estimatedCostUsd : sample.totalTokens
+                if (analyticsMetric === "cost" && typeof value !== "number") continue
+                values[time] = (values[time] || 0) + Number(value || 0)
+            }
+            let points = []
+            for (let time=start;time<=end;time+=interval) points.push({time:time,value:values[time] || 0})
+            return {provider:provider,points:points}
+        })
+    }
+    function countText(value) {
+        value = Number(value || 0)
+        if (value >= 1000000000) return (value/1000000000).toFixed(1) + "B"
+        if (value >= 1000000) return (value/1000000).toFixed(1) + "M"
+        if (value >= 10000) return (value/1000).toFixed(1) + "K"
+        return value.toLocaleString()
+    }
+    function costText(value) {
+        if (value === null || value === undefined || !isFinite(Number(value))) return "—"
+        if (Number(value) < 0.01) return "<$0.01"
+        return "$" + Number(value).toFixed(2)
+    }
+    onAnalyticsPeriodChanged: { refreshAnalytics(); if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0) }
+    onAnalyticsMetricChanged: if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0)
+    onSettingsOpenChanged: if (settingsOpen) { pageSpring.jump(0); pageDataClock.jump(0); if (!reader.running) reader.running = true; refreshAnalytics(); if (settingsTab === "Updates") runUpdater("status") } else if (activeDropdown) activeDropdown.close()
+    Timer { interval: 30000; repeat: true; running: root.settingsOpen; onTriggered: { root.now = Date.now(); root.refreshAnalytics() } }
     property string accountSnapshot: ""
     property var brandIndex: ({})
     property string brandDirectory: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/brand-icons"
@@ -197,6 +269,7 @@ ShellRoot {
             prefs.hotspotRevision = 1
         }
         syncRingAccounts()
+        scheduleFullscreenRefresh()
         if (!reader.running) reader.running = true
         if (!brandReader.running) brandReader.running = true
     }
@@ -314,9 +387,9 @@ ShellRoot {
     function unit(v) { return Math.max(0, Math.min(1, v)) }
     function smooth(t) { t = unit(t); return t*t*(3-2*t) }
     function quintic(t) { t = unit(t); return t*t*t*(t*(t*6-15)+10) }
-    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: root.opened ? 1 : 2/3 }
+    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: root.opened ? 1 : 2/3; curve: root.opened ? Easing.OutCubic : Easing.InCubic }
     property real reveal: unit(drawerSpring.value)
-    MotionValue { id: drawerContentSpring; targetValue: root.opened ? 1 : 0; factor: 1.10; proportional: true; curve: Easing.Linear }
+    MotionValue { id: drawerContentSpring; targetValue: root.opened ? 1 : 0; factor: root.opened ? 1.20 : 2/3; proportional: true; curve: Easing.Linear }
     MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: root.settingsOpen ? 1 : 2/3 }
     property real settingsReveal: unit(settingsSpring.value)
     MotionValue { id: settingsContentSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
@@ -365,9 +438,10 @@ ShellRoot {
     property color sessionColor: tone("primary", lightTheme ? "#222222" : "#e8e8e8")
     property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
     function stagger(i) {
-        if (prefs.motionStyle === "reduced") return reveal
-        let delay = prefs.staggerEnabled ? Math.min(0.5,Math.min(120,Math.max(0,i)*12)/Math.max(1,root.motionDuration(1.10))) : 0
-        return smooth((unit(drawerContentSpring.value)-delay)/(1-delay))
+        if (prefs.motionStyle === "reduced") return root.opened ? 1 : 0
+        let delay = prefs.staggerEnabled ? Math.min(0.58,Math.max(0,i)*0.09) : 0
+        let start = 0.10 + delay
+        return smooth((unit(drawerContentSpring.value)-start)/(1-start))
     }
     function windowFor(account, minutes) {
         let windows = account.windows || []
@@ -377,7 +451,36 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property int motionMs: 240; property int dataMotionMs: 450; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: false; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 40; property int hotspotRevision: 0; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property bool fullscreenOverride: false; property int motionMs: 240; property int dataMotionMs: 450; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 40; property int hotspotRevision: 0; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
+    property bool hyprlandAvailable: Hyprland.eventSocketPath.length > 0
+    property bool activeFullscreen: false
+    property bool fullscreenKnown: false
+    property bool fullscreenRefreshPending: false
+    property bool canOpenDrawer: prefs.fullscreenOverride || !hyprlandAvailable || (fullscreenKnown && !activeFullscreen)
+    function scheduleFullscreenRefresh() { fullscreenRefresh.restart() }
+    Timer { id: fullscreenRefresh; interval: 70; repeat: false; onTriggered: {
+        if (!root.hyprlandAvailable) { root.activeFullscreen = false; root.fullscreenKnown = true; return }
+        if (fullscreenReader.running) { root.fullscreenRefreshPending = true; return }
+        fullscreenReader.running = true
+    } }
+    Process {
+        id: fullscreenReader
+        command: ["hyprctl", "-j", "activewindow"]
+        stdout: StdioCollector { onStreamFinished: {
+            try { root.activeFullscreen = Number(JSON.parse(text).fullscreen) > 0; root.fullscreenKnown = true }
+            catch(e) { root.activeFullscreen = false; root.fullscreenKnown = false }
+        } }
+        onExited: if (root.fullscreenRefreshPending) { root.fullscreenRefreshPending = false; root.scheduleFullscreenRefresh() }
+    }
+    Connections {
+        target: root.hyprlandAvailable ? Hyprland : null
+        function onActiveToplevelChanged() { root.scheduleFullscreenRefresh() }
+        function onRawEvent(event) {
+            if (["fullscreen","activewindowv2","workspace","focusedmon","openwindow","closewindow"].includes(event.name)) root.scheduleFullscreenRefresh()
+        }
+    }
+    onHyprlandAvailableChanged: if (hyprlandAvailable) scheduleFullscreenRefresh()
+    onCanOpenDrawerChanged: if (!canOpenDrawer) hide()
     function loadPalette(text) {
         try { let data = JSON.parse(text); let raw = data.colours || data.colors || data; let p = {}; for (let k in raw) { let v = raw[k]; if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) { let key = k.replace(/^m3/, ""); key = key.charAt(0).toLowerCase() + key.slice(1); key = key.replace(/[ _-]([a-z])/g, (_, x) => x.toUpperCase()); p[key] = v.startsWith("#") ? v : "#" + v } } root.schemeMode = String(data.mode || "dark").toLowerCase(); root.palette = p } catch(e) { root.palette = {}; root.schemeMode = "dark" }
     }
@@ -443,7 +546,7 @@ ShellRoot {
         case "Updates": return "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3"
         case "About": return "M12 22a10 10 0 1 0 0-20a10 10 0 0 0 0 20 M12 11v6 M12 7h.01"
         case "refresh": return "M20 11a8 8 0 0 0-14.9-3 M4 4v5h5 M4 13a8 8 0 0 0 14.9 3 M20 20v-5h-5"
-        case "settings": return "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8 M9 2h6l1 3l3 1l3 3v6l-3 1l-1 3l-3 3H9l-1-3l-3-1l-3-3V9l3-1l1-3z"
+        case "settings": return "M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8 M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
         default: return ""
         }
     }
@@ -562,7 +665,7 @@ ShellRoot {
         let d = Math.floor(seconds / 86400), h = Math.floor(seconds / 3600) % 24, m = Math.floor(seconds / 60) % 60
         return "Resets in " + (d ? d + "d " : "") + (h ? h + "h " : "") + m + "m"
     }
-    function show() { closeTimer.stop(); if (!opened) { opened = true; ringClock.jump(0) } }
+    function show() { if (!canOpenDrawer) return; closeTimer.stop(); if (!opened) { opened = true; ringClock.jump(0) } }
     function hide() { pinned = false; opened = false; closeTimer.stop() }
     Timer { id: closeTimer; interval: prefs.dismissDelay; onTriggered: if (!root.settingsOpen && !root.pinned && !drawerHover.hovered) root.hide() }
     Process {
@@ -578,8 +681,9 @@ ShellRoot {
     IpcHandler {
         target: "dashboard"
         function settings(): void { if (root.settingsOpen) root.dismissAll(); else root.openSettings("") }
-        function toggle(): void { if (root.settingsOpen) root.dismissAll(); else if (root.opened) root.hide(); else { root.pinned = true; root.show() } }
+        function toggle(): void { if (root.settingsOpen) root.dismissAll(); else if (root.opened) root.hide(); else if (root.canOpenDrawer) { root.pinned = true; root.show() } }
         function isOpen(): bool { return root.opened }
+        function canShow(): bool { return root.canOpenDrawer }
         function analytics(): void { root.openSettings("Analytics") }
         function refresh(): void { root.refreshView() }
         function dismiss(): void { root.dismissAll() }
@@ -726,7 +830,7 @@ ShellRoot {
             id: corner
             x: (parent.width - width) * root.ax
             y: (parent.height - height) * root.ay
-            width: prefs.hoverEnabled && !root.settingsOpen ? prefs.hotspotSize : 0
+            width: prefs.hoverEnabled && !root.settingsOpen && root.canOpenDrawer ? prefs.hotspotSize : 0
             height: width
         }
         Item {
@@ -741,24 +845,23 @@ ShellRoot {
             onHoveredChanged: {
                 if (hovered) {
                     closeTimer.stop()
-                    if (!root.opened && prefs.hoverEnabled && !root.settingsOpen) root.show()
+                    if (!root.opened && prefs.hoverEnabled && !root.settingsOpen && root.canOpenDrawer) root.show()
                 } else if (root.opened && !root.pinned) closeTimer.restart()
             }
         }
         Rectangle {
             id: body
-            x: root.finalPanelX
-            y: root.finalPanelY
-            width: root.panelWidth
-            height: root.panelHeight
-            transform: Translate { x: (root.ax-0.5)*8*(1-root.reveal); y: (root.ay-0.5)*8*(1-root.reveal) }
-            visible: root.reveal > 0.0001
+            property real seed: Math.max(1,Math.min(prefs.hotspotSize,root.panelWidth,root.panelHeight))
+            x: 6 + (drawer.width - 12 - width) * root.ax
+            y: 6 + (drawer.height - 12 - height) * root.ay
+            width: seed + (root.panelWidth - seed) * root.reveal
+            height: seed + (root.panelHeight - seed) * root.reveal
+            visible: root.opened || root.reveal > 0.0001
             enabled: root.opened
-            radius: 30
+            radius: root.liquidRadius(width,height,root.reveal,30)
             color: root.surface
 
             clip: true
-            opacity: root.reveal
             // The content is always measured at the FINAL width. No text
             // reflow, scale, or layout resizing during the reveal.
             Flickable {
@@ -830,9 +933,10 @@ ShellRoot {
                                         MText { text: accountCard.modelData.name; color: root.muted; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight }
                                     }
                                 }
-                                MText { visible: accountCard.modelData.status !== "ok"; text: accountCard.modelData.status; color: root.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                MText { visible: accountCard.modelData.authKind === "api_key"; text: "API key · quota resources unavailable"; color: root.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                MText { visible: accountCard.modelData.status !== "ok" && accountCard.modelData.authKind !== "api_key"; text: accountCard.modelData.status; color: root.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                                 Repeater {
-                                    model: accountCard.modelData.windows || []
+                                    model: accountCard.modelData.authKind === "api_key" ? [] : accountCard.modelData.windows || []
                                     delegate: ColumnLayout {
                                         required property var modelData
                                         id: quota
@@ -870,6 +974,7 @@ ShellRoot {
                                 required property var modelData
                                 required property int index
                                 property var account: root.accounts.find(a => String(a.id) === String(modelData)) || ({name:"",provider:"",windows:[],status:"ok"})
+                                property bool apiKey: account.authKind === "api_key"
                                 property var session: root.windowFor(account, 300)
                                 property var week: root.windowFor(account, 10080)
                                 property real sessionLeft: root.remaining(session)
@@ -900,6 +1005,7 @@ ShellRoot {
                                     }
                                     Item {
                                         id: ringFace
+                                        visible: !ringCard.apiKey
                                         // Never let the layout independently stretch the two axes.
                                         property real diameter: Math.max(1, Math.min(root.accounts.length === 1 ? 144 : 132, Math.floor(ringCard.width - 24)))
                                         property real strokeSize: diameter * 0.05
@@ -964,11 +1070,21 @@ ShellRoot {
                                             }
                                         }
                                     }
+                                    ColumnLayout {
+                                        visible: ringCard.apiKey
+                                        Layout.fillWidth: true; spacing: 6
+                                        Rectangle {
+                                            Layout.fillWidth: true; implicitHeight: 42; radius: 12
+                                            color: root.track
+                                            MText { anchors.centerIn: parent; text: "API KEY"; font.pixelSize: 12; font.weight: Font.DemiBold; color: root.foreground }
+                                        }
+                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "Quota resources unavailable"; color: root.muted; font.pixelSize: 10; wrapMode: Text.WordWrap }
+                                    }
 
                                     // Align labels and values like the website preview; keep
                                     // reset text subordinate rather than splitting it into a third row.
                                     Repeater {
-                                        model: [
+                                        model: ringCard.apiKey ? [] : [
                                             { label: "Session", value: ringCard.sessionLeft, quota: ringCard.session, tint: root.sessionColor },
                                             { label: "Weekly", value: ringCard.weekLeft, quota: ringCard.week, tint: root.weeklyColor }
                                         ]
@@ -991,7 +1107,7 @@ ShellRoot {
                                             }
                                         }
                                     }
-                                    MText { visible: ringCard.account.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; text: ringCard.account.status }
+                                    MText { visible: ringCard.account.status !== "ok" && !ringCard.apiKey; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; text: ringCard.account.status }
                                 }
                             }
                         }
@@ -1422,10 +1538,10 @@ ShellRoot {
                                     StatCard { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) } label: "Visible accounts"; value: String(root.accounts.length) }
                                     StatCard { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) } label: "Healthy accounts"; value: String(root.accounts.filter(a => a.status === "ok").length) }
                                     StatCard { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) } label: "Providers"; value: String(new Set(root.accounts.map(a => a.provider)).size) }
-                                    StatCard { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) } label: "Quota history"; value: String(root.history.length) }
+                                    StatCard { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) } label: "Token requests"; value: root.countText(root.analyticsTotals.requests) }
                                 }
                                 SectionTitle { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
-                                    text: "Current limits" }
+                                    text: "Current provider data" }
                                 Description { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
                                     text: root.status }
                                 Repeater {
@@ -1444,10 +1560,11 @@ ShellRoot {
                                                 ProviderIcon { Layout.preferredWidth: 32; Layout.preferredHeight: 32; name: root.logo(overviewAccount.modelData.provider); fallback: String(overviewAccount.modelData.provider).slice(0,1).toUpperCase() }
                                                 ColumnLayout { Layout.fillWidth: true; spacing: 3
                                                     MText { text: overviewAccount.modelData.provider + " · " + overviewAccount.modelData.name; Layout.fillWidth: true; elide: Text.ElideRight; font.weight: Font.Medium }
-                                                    Description { text: overviewAccount.modelData.status; font.pixelSize: 11 }
+                                                    Description { text: overviewAccount.modelData.authKind === "api_key" ? "API key · quota resources unavailable" : overviewAccount.modelData.status; font.pixelSize: 11 }
                                                 }
                                             }
                                             RowLayout {
+                                                visible: overviewAccount.modelData.authKind !== "api_key"
                                                 Layout.fillWidth: true; spacing: 18
                                                 Repeater {
                                                     model: [{label:"Session",value:root.remaining(root.windowFor(overviewAccount.modelData,300)),tint:root.sessionColor},{label:"Weekly",value:root.remaining(root.windowFor(overviewAccount.modelData,10080)),tint:root.weeklyColor}]
@@ -1468,6 +1585,7 @@ ShellRoot {
                                                     }
                                                 }
                                             }
+                                            Description { visible: overviewAccount.modelData.authKind === "api_key"; text: "API-key usage is shown in Analytics. Quota resources are unavailable."; font.pixelSize: 11 }
                                         }
                                     }
                                 }
@@ -1626,12 +1744,13 @@ ShellRoot {
                                                                 RowLayout {
                                                                     spacing: 5
                                                                     Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: accountRow.modelData.status === "ok" ? root.primary : accountRow.modelData.status === "stale" ? root.weeklyColor : root.danger }
-                                                                    MText { text: !accountRow.shown || !providerRow.shown ? "Hidden" : accountRow.modelData.status === "ok" ? "Available" : accountRow.modelData.status === "stale" ? "Stale cache" : "Unavailable"; font.pixelSize: 11; color: root.muted }
+                                                                    MText { text: !accountRow.shown || !providerRow.shown ? "Hidden" : accountRow.modelData.authKind === "api_key" ? "API key · resources unavailable" : accountRow.modelData.status === "ok" ? "Available" : accountRow.modelData.status === "stale" ? "Stale cache" : "Unavailable"; font.pixelSize: 11; color: root.muted }
                                                                 }
                                                             }
                                                             MSwitch { enabled: providerRow.shown; checked: accountRow.shown; onToggled: root.setHidden("hiddenAccounts", String(accountRow.modelData.id), !checked) }
                                                         }
                                                         RowLayout {
+                                                            visible: accountRow.modelData.authKind !== "api_key"
                                                             Layout.fillWidth: true; spacing: 16
                                                             Repeater {
                                                                 model: [{label:"Session",value:accountRow.session,tint:root.sessionColor},{label:"Weekly",value:accountRow.weekly,tint:root.weeklyColor}]
@@ -1651,6 +1770,7 @@ ShellRoot {
                                                                 }
                                                             }
                                                         }
+                                                        Description { visible: accountRow.modelData.authKind === "api_key"; text: "Quota resources are unavailable for API-key sessions."; font.pixelSize: 11 }
                                                     }
                                                 }
                                             }
@@ -1661,123 +1781,143 @@ ShellRoot {
                             ColumnLayout {
                                 visible: root.settingsTab === "Analytics"; Layout.fillWidth: true; spacing: 14
                                 Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
-                                    text: "Recorded subscription quota, not token consumption or actual billing. History starts after the new backend is installed." }
+                                    text: "Token usage comes from local Codex session logs. Cost is an API-equivalent estimate using standard OpenAI rates, not your provider invoice." }
                                 Flow {
                                     Layout.fillWidth: true; spacing: 8
-                                    Repeater { model: [{v:"1",n:"24h"},{v:"7",n:"7 days"},{v:"30",n:"30 days"},{v:"90",n:"90 days"}]
+                                    Repeater { model: [{v:"1",n:"24 hours"},{v:"7",n:"7 days"},{v:"30",n:"30 days"},{v:"90",n:"90 days"}]
                                         delegate: Choice { required property var modelData; required property int index; opacity: root.pageStage(2+index); transform: ItemGrowth { stage: root.pageStage(2+index) } label: modelData.n; selected: root.analyticsPeriod === modelData.v; onChosen: root.analyticsPeriod = modelData.v }
                                     }
                                 }
                                 RowLayout { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     Layout.fillWidth: true
-                                    Choice { label: "Session"; selected: root.analyticsMetric === "session"; onChosen: root.analyticsMetric = "session" }
-                                    Choice { label: "Weekly"; selected: root.analyticsMetric === "weekly"; onChosen: root.analyticsMetric = "weekly" }
+                                    Choice { label: "Tokens"; selected: root.analyticsMetric === "tokens"; onChosen: root.analyticsMetric = "tokens" }
+                                    Choice { label: "Cost estimate"; selected: root.analyticsMetric === "cost"; onChosen: root.analyticsMetric = "cost" }
                                     Item { Layout.fillWidth: true }
                                     Choice { label: "Line"; selected: prefs.chartMode === "line"; onChosen: { if (prefs.chartMode !== "line") { prefs.chartMode = "line"; pageDataClock.jump(0) } } }
                                     Choice { label: "Bars"; selected: prefs.chartMode === "bars"; onChosen: { if (prefs.chartMode !== "bars") { prefs.chartMode = "bars"; pageDataClock.jump(0) } } }
                                 }
-                                Rectangle { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
-                                    
-                                    id: analyticsGraph
-                                    Layout.fillWidth: true; implicitHeight: 280; radius: 22; color: root.cardColor
-                                    Canvas {
-                                        id: plotAxes
-                                        x: 18; y: 18; width: Math.max(1,analyticsGraph.width-36); height: Math.max(1,analyticsGraph.height-36)
-                                        property color gridColor: root.track
-                                        property color labelColor: root.muted
-                                        property string period: root.analyticsPeriod
-                                        onGridColorChanged: requestPaint()
-                                        onLabelColorChanged: requestPaint()
-                                        onPeriodChanged: requestPaint()
-                                        onWidthChanged: requestPaint()
-                                        onHeightChanged: requestPaint()
-                                        onPaint: {
-                                            let c=getContext("2d"); c.reset()
-                                            let left=38, top=12, w=Math.max(1,width-left-8), h=Math.max(1,height-top-30)
-                                            c.font="11px sans-serif"; c.fillStyle=labelColor
-                                            for(let v=0;v<=100;v+=25) { let y=top+h*(1-v/100); c.strokeStyle=gridColor; c.beginPath(); c.moveTo(left,y); c.lineTo(left+w,y); c.stroke(); c.fillText(v+"%",0,y+4) }
-                                            c.fillText(period==="1"?"24h ago":period+"d ago",left,height-3); c.fillText("Now",Math.max(left,width-30),height-3)
+                                GridLayout {
+                                    columns: 2; Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
+                                    StatCard { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) } label: "Estimated API cost"; value: root.analyticsTotals.requests && root.analyticsTotals.costComplete ? root.costText(root.analyticsTotals.cost) : "—" }
+                                    StatCard { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) } label: "Input tokens"; value: root.countText(root.analyticsTotals.input) }
+                                    StatCard { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) } label: "Output tokens"; value: root.countText(root.analyticsTotals.output) }
+                                    StatCard { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) } label: "Requests"; value: root.countText(root.analyticsTotals.requests) }
+                                }
+                                Flow { Layout.fillWidth: true; spacing: 14
+                                    Repeater {
+                                        model: root.analyticsProviders
+                                        delegate: RowLayout {
+                                            required property string modelData
+                                            spacing: 6
+                                            Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: root.providerColor(modelData) }
+                                            MText { text: modelData; color: root.muted; font.pixelSize: 11 }
                                         }
                                     }
-                                    MText { anchors.centerIn: parent; visible: !plot.hasSamples; text: "No samples for this window yet"; color: root.muted; font.pixelSize: 12 }
-                                    Item {
-                                        x: 53; y: 18
-                                        width: Math.max(0,analyticsGraph.width-71)*root.pageDataProgress(0)
-                                        height: Math.max(1,analyticsGraph.height-36); clip: true
+                                }
+                                Description { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
+                                    text: !root.analyticsTotals.requests ? root.analyticsStatus : root.analyticsStatus + " · " + root.countText(root.analyticsTotals.requests) + " requests · " + root.countText(root.analyticsTotals.cached) + " cached input tokens · " + root.countText(root.analyticsTotals.reasoning) + " reasoning tokens" + (root.analyticsTotals.costComplete ? "" : " · Cost estimate unavailable for one or more models.") }
+                                Rectangle { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
+                                    id: analyticsGraph
+                                    Layout.fillWidth: true; implicitHeight: 260; radius: 22; color: root.cardColor
                                     Canvas {
-                                        x: -35
-                                        id: plot; width: Math.max(1,analyticsGraph.width-36); height: Math.max(1,analyticsGraph.height-36)
-                                        property var samples: root.series()
-                                        property bool hasSamples: samples.some(p => p.time >= Date.now()/1000-Number(period)*86400 && p.time <= Date.now()/1000)
-                                        property string mode: prefs.chartMode
+                                        anchors.fill: parent
+                                        property var points: root.analyticsPlot
                                         property string period: root.analyticsPeriod
-                                        property color fg: root.primary
-                                        property color secondary: root.weeklyColor
+                                        property string metric: root.analyticsMetric
+                                        property string mode: prefs.chartMode
                                         property color gridColor: root.track
                                         property color labelColor: root.muted
-                                        onSamplesChanged: requestPaint()
-                                        onModeChanged: requestPaint()
+                                        onPointsChanged: requestPaint()
                                         onPeriodChanged: requestPaint()
-                                        onFgChanged: requestPaint()
-                                        onSecondaryChanged: requestPaint()
+                                        onMetricChanged: requestPaint()
+                                        onModeChanged: requestPaint()
                                         onGridColorChanged: requestPaint()
                                         onLabelColorChanged: requestPaint()
                                         onWidthChanged: requestPaint()
                                         onHeightChanged: requestPaint()
                                         onPaint: {
                                             let c = getContext("2d"); c.reset()
-                                            let left=38, top=12, w=Math.max(1,width-left-8), h=Math.max(1,height-top-30)
-                                            c.font="11px sans-serif"; c.fillStyle=labelColor
+                                            let left = 54, right = 18, top = 18, bottom = 38
+                                            let w = Math.max(1,width-left-right), h = Math.max(1,height-top-bottom)
+                                            let max = 1
+                                            points.forEach(series => series.points.forEach(point => { max = Math.max(max, Number(point.value) || 0) }))
+                                            c.font = "11px sans-serif"; c.fillStyle = labelColor; c.strokeStyle = gridColor; c.lineWidth = 1
+                                            for (let i=0;i<=4;i++) {
+                                                let value = max*(1-i/4), y = top+h*i/4
+                                                c.beginPath(); c.moveTo(left,y); c.lineTo(left+w,y); c.stroke()
+                                                c.fillText(metric === "cost" ? "$"+value.toFixed(value<1?2:1) : root.countText(value), 4, y+4)
+                                            }
                                             let end=Date.now()/1000, start=end-Number(period)*86400
-                                            let groups={}
-                                            for(let p of samples) { if(p.time<start || p.time>end) continue; let key=String(p.id); if(!groups[key]) groups[key]=[]; groups[key].push(p) }
-                                            let keys=Object.keys(groups).sort()
-                                            keys.forEach((key,i)=>{
-                                                let pts=groups[key].sort((a,b)=>a.time-b.time); let colour=i%2===0?fg:secondary
-                                                c.strokeStyle=colour; c.fillStyle=colour; c.lineWidth=2
-                                                if(mode==="line") {
-                                                    c.beginPath()
-                                                    pts.forEach((p,j)=>{let x=left+w*(p.time-start)/(end-start), y=top+h*(1-p.remaining/100); if(j===0)c.moveTo(x,y);else c.lineTo(x,y)})
+                                            let interval=period==="1"?3600:86400
+                                            let step=Math.max(interval,Math.ceil((end-start)/4/interval)*interval)
+                                            c.fillStyle=labelColor; c.textAlign="center"
+                                            for(let time=Math.ceil(start/step)*step;time<=end;time+=step){
+                                                let x=left+w*(time-start)/(end-start), date=new Date(time*1000)
+                                                let label=period==="1"?date.toLocaleTimeString(undefined,{hour:"numeric"}):date.toLocaleDateString(undefined,{month:"short",day:"numeric"})
+                                                c.fillText(label,x,height-12)
+                                            }
+                                            c.textAlign="start"
+                                            if (!points.length || !points.some(series => series.points.length)) return
+                                            if (mode === "bars") {
+                                                let count=points[0].points.length, groupWidth=w/Math.max(count,1)
+                                                let bar=Math.max(1,Math.min(16,groupWidth/Math.max(points.length,1)*0.72))
+                                                points.forEach((series,seriesIndex)=>{
+                                                    c.fillStyle=root.providerColor(series.provider)
+                                                    series.points.forEach(point=>{
+                                                        let x=left+w*(point.time-start)/(end-start)+(seriesIndex-(points.length-1)/2)*bar
+                                                        let bh=h*point.value/max
+                                                        c.fillRect(x-bar/2,top+h-bh,bar,bh)
+                                                    })
+                                                })
+                                            } else {
+                                                c.lineWidth=2.4; c.lineJoin="round"; c.lineCap="round"
+                                                points.forEach(series=>{
+                                                    if(series.points.length<2)return
+                                                    c.strokeStyle=root.providerColor(series.provider)
+                                                    let coords=series.points.map(point=>({x:left+w*(point.time-start)/(end-start),y:top+h*(1-point.value/max)}))
+                                                    c.beginPath(); c.moveTo(coords[0].x,coords[0].y)
+                                                    for(let index=1;index<coords.length;index++){
+                                                        let previous=coords[index-1],current=coords[index]
+                                                        let midX=(previous.x+current.x)/2,midY=(previous.y+current.y)/2
+                                                        c.quadraticCurveTo(previous.x,previous.y,midX,midY)
+                                                    }
+                                                    c.lineTo(coords[coords.length-1].x,coords[coords.length-1].y)
                                                     c.stroke()
-                                                    if(pts.length===1){let p=pts[0];c.beginPath();c.arc(left+w*(p.time-start)/(end-start),top+h*(1-p.remaining/100),3,0,Math.PI*2);c.fill()}
-                                                } else {
-                                                    let buckets=Number(period)===1?24:Math.min(90,Number(period))
-                                                    let last={}
-                                                    pts.forEach(p=>{let b=Math.max(0,Math.min(buckets-1,Math.floor((p.time-start)/(end-start)*buckets)));last[b]=p})
-                                                    let bw=w/buckets
-                                                    Object.keys(last).forEach(b=>{let p=last[b], bh=h*p.remaining/100;let sw=Math.max(1,(bw-2)/keys.length);c.fillRect(left+Number(b)*bw+i*sw,top+h-bh,sw,bh)})
-                                                }
-                                            })
-
+                                                })
+                                            }
                                         }
                                     }
-                                    }
-                                }
-                                Description { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) }
-                                    text: root.analyticsStatus + " · Remaining quota (%) · Bars show the last observation in each time bucket." }
-                                SectionTitle { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
-                                    text: "Account legend" }
-                                Repeater {
-                                    model: Array.from(new Set(root.series().map(p => String(p.id)))).sort()
-                                    delegate: RowLayout {
-                                        required property string modelData
-                                        required property int index
-                                        opacity: root.pageStage(index+8); transform: ItemGrowth { stage: root.pageStage(index+8) }
-                                        Layout.fillWidth: true
-                                        Rectangle { Layout.preferredWidth: 12; Layout.preferredHeight: 12; radius: 6; color: index % 2 === 0 ? root.primary : root.weeklyColor }
-                                        MText { Layout.fillWidth: true; elide: Text.ElideRight; text: (root.series().find(p => String(p.id) === modelData) || {}).name || modelData }
-                                    }
+                                    MText { anchors.centerIn: parent; visible: root.analyticsPlot.length === 0; text: root.analyticsMetric === "cost" && root.analyticsTotals.requests ? "A complete cost estimate is unavailable for this period" : "No token activity for this period"; color: root.muted; font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; width: parent.width-48 }
                                 }
                                 SectionTitle { opacity: root.pageStage(10); transform: ItemGrowth { stage: root.pageStage(10) }
-                                    text: "Token and cost analytics" }
-                                Description { opacity: root.pageStage(11); transform: ItemGrowth { stage: root.pageStage(11) }
-                                    text: "T3 historical token usage and API-equivalent costs are not connected yet. No fabricated estimates are shown." }
+                                    text: "Accounts" }
+                                Repeater {
+                                    model: root.analyticsAccounts
+                                    delegate: RowLayout {
+                                        required property var modelData
+                                        required property int index
+                                        opacity: root.pageStage(index+11); transform: ItemGrowth { stage: root.pageStage(index+11) }
+                                        Layout.fillWidth: true; spacing: 10
+                                        Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: index % 2 === 0 ? root.primary : root.weeklyColor }
+                                        MText { Layout.fillWidth: true; elide: Text.ElideRight; text: modelData.name || modelData.id }
+                                        Rectangle { visible: modelData.authKind === "api_key"; radius: 10; color: root.track; implicitWidth: apiBadge.implicitWidth+14; implicitHeight: 22
+                                            MText { id: apiBadge; anchors.centerIn: parent; text: "API"; color: root.foreground; font.pixelSize: 10; font.weight: Font.DemiBold }
+                                        }
+                                        MText { text: root.countText(modelData.input) + " in · " + root.countText(modelData.output) + " out · " + root.countText(modelData.requests) + " requests"; color: root.muted; font.pixelSize: 11 }
+                                    }
+                                }
+                                Description { visible: root.analyticsTotals.requests === 0; opacity: root.pageStage(12); transform: ItemGrowth { stage: root.pageStage(12) }
+                                    text: "Usage appears here after a Codex session records token counts. API-key accounts can show usage here while quota resources remain unavailable." }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Behaviour"; Layout.fillWidth: true; spacing: 14
                                 RowLayout { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     MText { text: "Hover activation"; Layout.fillWidth: true } MSwitch { checked: prefs.hoverEnabled; onToggled: prefs.hoverEnabled = checked } }
-                                SectionTitle { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
+                                RowLayout { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
+                                    MText { text: "Allow over full-screen apps"; Layout.fillWidth: true } MSwitch { checked: prefs.fullscreenOverride; onToggled: prefs.fullscreenOverride = checked } }
+                                Description { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
+                                    text: "Off by default. The hotspot stays hidden while a full-screen window is active." }
+                                SectionTitle { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     text: "Activation position" }
                                 Rectangle { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     
@@ -1800,7 +1940,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.motionMs=240; prefs.dataMotionMs=450; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=false; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=40; prefs.hotspotRevision=1; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.fullscreenOverride=false; prefs.motionMs=240; prefs.dataMotionMs=450; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=40; prefs.hotspotRevision=1; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14

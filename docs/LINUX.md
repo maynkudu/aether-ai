@@ -141,7 +141,7 @@ Keep your current session manager if it already handles startup. Aether's instal
 
 ## Phase 4: usage
 
-Hover over the top-right corner to open the quota drawer. Use **Settings** to open the control centre. **Behaviour** changes the activation position, hover behavior, and dismissal delay. The drawer stays above other shell surfaces and applications, including full-screen clients.
+Hover over the selected hotspot to open the quota drawer. Use **Settings** to open the control centre. **Behaviour** changes the activation position, hover behavior, full-screen override, and dismissal delay. The drawer is hidden while a full-screen Hyprland client is active unless the override is enabled.
 
 Open the control centre from a terminal:
 

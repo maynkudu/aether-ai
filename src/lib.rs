@@ -1,4 +1,5 @@
 pub mod history;
+pub mod analytics;
 use serde_json::{json, Value};
 use std::{path::{Path,PathBuf}, collections::BTreeMap, time::{Duration,SystemTime,UNIX_EPOCH}};
 use tokio::{io::{AsyncBufReadExt,AsyncWriteExt,BufReader},process::Command};
@@ -66,6 +67,26 @@ pub fn discover()->BTreeMap<PathBuf,String>{
  if let Ok(paths)=std::env::var("AETHER_CODEX_HOMES"){for p in std::env::split_paths(&paths){let name=p.file_name().unwrap_or_default().to_string_lossy().into_owned();out.insert(p,name);}}
  out.into_iter().map(|(p,n)|(p.canonicalize().unwrap_or(p),n)).collect()
 }
+fn auth_kind_from(auth:&Value, env_api_key:bool)->&'static str {
+    if env_api_key {
+        return "api_key";
+    }
+    let mode=auth.get("auth_mode").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase().replace(['_','-'],"");
+    if matches!(mode.as_str(),"apikey"|"bedrockapikey"|"bedrockaccesskeys")
+        || ["openai_api_key","openaiApiKey","OPENAI_API_KEY"].iter().any(|key|auth.get(*key).and_then(Value::as_str).is_some_and(|v|!v.trim().is_empty())) {
+        return "api_key";
+    }
+    if matches!(mode.as_str(),"chatgpt"|"chatgptauthtokens") || auth.get("tokens").is_some() {
+        return "chatgpt";
+    }
+    "unknown"
+}
+pub fn auth_kind(path:&Path)->&'static str {
+    let auth=read(&path.join("auth.json")).unwrap_or(Value::Null);
+    let env_api_key=std::env::var_os("OPENAI_API_KEY").is_some_and(|v|!v.is_empty())
+        || std::env::var_os("CODEX_API_KEY").is_some_and(|v|!v.is_empty());
+    auth_kind_from(&auth,env_api_key)
+}
 async fn probe(path:PathBuf)->Result<Value,String>{
  let mut command=Command::new(codex_bin());
  command.arg("app-server").env("CODEX_HOME",path).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).kill_on_drop(true);
@@ -78,7 +99,7 @@ async fn probe(path:PathBuf)->Result<Value,String>{
  send(&mut input,json!({"method":"initialized"})).await?;
  send(&mut input,json!({"id":2,"method":"account/rateLimits/read","params":{}})).await?;let result=recv(&mut lines,2).await?;let _=child.kill().await;Ok(result)
 }
-pub async fn refresh()->Value{let old=read(&cache()).unwrap_or(json!({}));let mut tasks=tokio::task::JoinSet::new();let sem=std::sync::Arc::new(tokio::sync::Semaphore::new(3));for (p,n) in discover(){let sem=sem.clone();tasks.spawn(async move{let _permit=sem.acquire().await.unwrap();let result=tokio::time::timeout(Duration::from_secs(20),probe(p.clone())).await; (p,n,result)});}let mut rows=vec![];while let Some(Ok((p,n,r)))=tasks.join_next().await{let id=p.to_string_lossy();let mut row=json!({"id":id,"name":n,"provider":"Codex","status":"unavailable","windows":[]});match r{Ok(Ok(v))=>{let mut windows=vec![];let limits=v.get("rateLimits").unwrap_or(&v);for key in ["primary","secondary"]{if let Some(w)=limits.get(key){if let Some(used)=w.get("usedPercent").and_then(Value::as_f64){windows.push(json!({"remaining":(100.0-used).clamp(0.0,100.0),"minutes":w.get("windowDurationMins"),"reset":w.get("resetsAt")}));}}}row["status"]=json!(if windows.is_empty(){"unavailable"}else{"ok"});row["windows"]=json!(windows);row["updated"]=json!(now());},_=>{if let Some(prev)=old.get("accounts").and_then(Value::as_array).and_then(|a|a.iter().find(|x|x.get("id")==row.get("id"))){row["windows"]=prev["windows"].clone();row["updated"]=prev["updated"].clone();row["status"]=json!("stale");}}}rows.push(row);}rows.sort_by_key(|v|v["id"].to_string());json!({"updated":now(),"accounts":rows})}
+pub async fn refresh()->Value{let old=read(&cache()).unwrap_or(json!({}));let mut tasks=tokio::task::JoinSet::new();let sem=std::sync::Arc::new(tokio::sync::Semaphore::new(3));for (p,n) in discover(){let sem=sem.clone();let auth=auth_kind(&p);tasks.spawn(async move{let result=if auth=="api_key"{None}else{let _permit=sem.acquire().await.unwrap();Some(tokio::time::timeout(Duration::from_secs(20),probe(p.clone())).await)};(p,n,auth,result)});}let mut rows=vec![];while let Some(Ok((p,n,auth,r)))=tasks.join_next().await{let id=p.to_string_lossy();let mut row=json!({"id":id,"name":n,"provider":"Codex","authKind":auth,"status":"unavailable","windows":[]});if auth=="api_key"{row["status"]=json!("api_key");row["updated"]=json!(now());}else{match r{Some(Ok(Ok(v)))=>{let mut windows=vec![];let limits=v.get("rateLimits").unwrap_or(&v);for key in ["primary","secondary"]{if let Some(w)=limits.get(key){if let Some(used)=w.get("usedPercent").and_then(Value::as_f64){windows.push(json!({"remaining":(100.0-used).clamp(0.0,100.0),"minutes":w.get("windowDurationMins"),"reset":w.get("resetsAt")}));}}}row["status"]=json!(if windows.is_empty(){"unavailable"}else{"ok"});row["windows"]=json!(windows);row["updated"]=json!(now());},_=>{if let Some(prev)=old.get("accounts").and_then(Value::as_array).and_then(|a|a.iter().find(|x|x.get("id")==row.get("id"))){row["windows"]=prev["windows"].clone();row["updated"]=prev["updated"].clone();row["status"]=json!("stale");}}}}rows.push(row);}rows.sort_by_key(|v|v["id"].to_string());json!({"updated":now(),"accounts":rows})}
 pub fn save(v:&Value)->std::io::Result<()> {
     use std::io::Write;
     let p=cache();
@@ -111,5 +132,12 @@ mod tests {
         assert!(cache().is_absolute());
         assert!(state_dir().is_absolute());
         assert_eq!(cache().file_name().unwrap(),"usage.json");
+    }
+    #[test]
+    fn api_key_auth_is_distinguished_from_chatgpt_login() {
+        assert_eq!(auth_kind_from(&json!({"auth_mode":"api_key"}),false),"api_key");
+        assert_eq!(auth_kind_from(&json!({"openai_api_key":"present"}),false),"api_key");
+        assert_eq!(auth_kind_from(&json!({"auth_mode":"chatgpt","tokens":{"access_token":"present"}}),false),"chatgpt");
+        assert_eq!(auth_kind_from(&json!({"auth_mode":"chatgpt"}),true),"api_key");
     }
 }
