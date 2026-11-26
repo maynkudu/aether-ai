@@ -1,6 +1,6 @@
 # aether.ai
 
-<p align="center"><strong>See your Codex session and weekly quota on your Linux desktop.</strong><br>
+<p align="center"><strong>See your AI account limits and local usage on your Linux desktop.</strong><br>
 A local monitor with a top-right quota drawer, account view, and private usage history.</p>
 
 <div align="center">
@@ -15,7 +15,7 @@ A local monitor with a top-right quota drawer, account view, and private usage h
 
 </div>
 
-Track remaining Codex quota across local accounts, see session and weekly reset times, and review up to 90 days of locally recorded history. Aether runs on Linux / Wayland with a Rust daemon and Quickshell interface. It sends no telemetry and does not proxy inference requests.
+Track supported account limits and reset times across coding clients, and review up to 90 days of locally recorded usage. Aether runs on Linux / Wayland with a Rust daemon and Quickshell interface. It sends no telemetry and does not proxy inference requests.
 
 > [!NOTE]
 > **Early development (v0.2.0).** Linux / Wayland is the only supported target. Arch Linux x86_64 and Hyprland are the primary tested setup. The development build discovers Codex, Claude Code, Pi and OpenCode accounts. Supported sign-ins expose quota windows; OpenCode also reports Go allowances, Console budgets and enabled free models when its local client provides them. API keys and unsupported sign-ins can show recorded local usage. Limits that their providers do not report remain unknown. No stable GitHub release is available yet.
@@ -38,7 +38,7 @@ The top-right drawer keeps quotas in view. The control centre holds account sett
 
 <img src="docs/assets/palettes.svg" alt="Seven built-in colour schemes and dynamic Caelestia palette" width="100%">
 
-Linux supports Liquid, Smooth and Reduced motion, with opaque theme-aware surfaces and adjustable trackpad speed. Caelestia is optional and disabled when its prerequisites are missing. See [configuration](docs/CONFIGURATION.md).
+Linux supports Smooth and Reduced motion, with opaque theme-aware surfaces and adjustable trackpad speed. Caelestia is optional and disabled when its prerequisites are missing. See [configuration](docs/CONFIGURATION.md).
 
 ## Meet Wisp
 
@@ -63,7 +63,7 @@ The Rust daemon runs independently of the Quickshell interface. The Linux instal
 | Coding clients | Pi | Local auth.json; OpenAI Codex and Anthropic OAuth quota usage |
 | Coding clients | OpenCode | OpenAI/Anthropic OAuth, Go session/weekly/monthly allowances, active Console workspace budgets and enabled free models |
 
-These adapters are development work. A client card identifies where the account was found; quotas belong to the upstream account and may be shared across clients. OpenCode free models show enabled models, seven-day local activity and observed limit errors. Retry countdowns appear only when OpenCode saved a retry delay. Remaining free allowance stays unknown. Analytics includes OpenCode model totals and local Pi/Claude usage alongside the Codex charts. Other API-key billing and OAuth providers do not produce invented quota percentages. See [account discovery](docs/CONFIGURATION.md#account-discovery).
+These adapters are development work. A client card identifies where the account was found; quotas belong to the upstream account and may be shared across clients. OpenCode free models show enabled models, seven-day local activity and observed limit errors. Retry countdowns appear only when OpenCode saved a retry delay. Remaining free allowance stays unknown. Analytics includes OpenCode model totals and local Pi/Claude usage alongside the Codex charts. Cards show recorded token and cost data when limits are unavailable, with partial readings and client-wide scope labelled. Other API-key billing and OAuth providers do not produce invented quota percentages. The four client logos ship with the UI and work offline. See [account discovery](docs/CONFIGURATION.md#account-discovery).
 
 ## Quick start
 
@@ -107,7 +107,7 @@ codex login
 codex login status
 ```
 
-Codex is the working quota adapter. Other providers remain planned; their accounts are not prerequisites for Aether.
+Codex, Claude Code, Pi and OpenCode accounts are discovered independently. Install and sign in to the clients you use; they are not all prerequisites for Aether.
 
 ### Phase 3: install Aether
 
@@ -137,7 +137,7 @@ aether accounts
 aether usage
 ```
 
-Refresh beside Settings and Ctrl+R reread the cache. The daemon queries quota every three minutes. The drawer remains available over other windows, including full-screen apps. See [usage and service commands](docs/LINUX.md#phase-4-usage).
+Refresh beside Settings and Ctrl+R reread the cache. Providers settings can hide accounts with neither limits nor recorded usage. The daemon queries quota every three minutes. Fullscreen apps suppress the drawer by default; Behaviour → Open in fullscreen enables an override. See [usage and service commands](docs/LINUX.md#phase-4-usage).
 
 ### Release downloads
 
@@ -147,8 +147,9 @@ The historical Linux alpha archive is available [here](https://github.com/maynku
 
 ```bash
 aether accounts       # discovered account homes
-aether usage          # cached quota JSON
+aether usage          # cached quotas and current local limit observations
 aether history 7      # seven days of local history
+aether analytics 7    # local Codex, OpenCode, Pi and Claude usage
 aether version
 ```
 
@@ -173,7 +174,7 @@ See [updates and rollback](docs/LINUX.md#updates-and-rollback) and [release engi
 
 ## Architecture
 
-Linux is the supported and distributed app. The installer and cache format retain their existing layout.
+Linux is the supported and distributed app. The Linux installer and cache format retain their existing layout.
 
 [Explore the architecture →](docs/ARCHITECTURE.md)
 

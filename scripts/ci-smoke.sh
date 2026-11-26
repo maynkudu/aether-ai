@@ -2,16 +2,18 @@
 set -euo pipefail
 test "$(id -u)" -ne 0
 root="$(cd "$(dirname "$0")/.." && pwd)"
+python3 "$root/scripts/test_drawer_motion.py"
 work="$(mktemp -d)"
 export HOME="$work/home"
 export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_STATE_HOME="$HOME/.local/state" XDG_RUNTIME_DIR="$work/runtime"
 mkdir -p "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME/quickshell/aether" "$HOME/.local/bin" "$XDG_CACHE_HOME/aether"
 chmod 700 "$XDG_RUNTIME_DIR"
 cp "$root/shell/shell.qml" "$XDG_CONFIG_HOME/quickshell/aether/"
+cp -r "$root/shell/provider-logos" "$XDG_CONFIG_HOME/quickshell/aether/"
 cp "$root/target/release/aether" "$HOME/.local/bin/aether"
 cp "$root/scripts/update.py" "$HOME/.local/bin/aether-update"
 chmod +x "$HOME/.local/bin/aether-update"
-printf '[AetherUI]\nviewMode=rings\nhotspotSize=18\n' > "$XDG_CONFIG_HOME/quickshell/aether/preferences.ini"
+printf '[AetherUI]\nviewMode=rings\nhotspotSize=18\ncolorScheme=ember\nfontChoice=DejaVu Sans\n' > "$XDG_CONFIG_HOME/quickshell/aether/preferences.ini"
 cat > "$XDG_CACHE_HOME/aether/usage.json" <<'JSON'
 {"accounts":[{"id":"smoke-one","name":"Smoke 100","provider":"Codex","status":"ok","windows":[{"minutes":300,"remaining":100},{"minutes":10080,"remaining":64}]},{"id":"smoke-two","name":"Smoke zero","provider":"Codex","status":"ok","windows":[{"minutes":300,"remaining":0}]}],"updated":null}
 JSON
@@ -105,4 +107,19 @@ for action in toggle settings analytics shortcuts dismiss; do
   sleep 3
   kill -0 "$shellpid"
 done
+python3 - <<'PY'
+from configparser import ConfigParser
+import os
+from pathlib import Path
+
+prefs = ConfigParser(interpolation=None)
+prefs.read(Path(os.environ['XDG_CONFIG_HOME']) / 'quickshell/aether/preferences.ini')
+ui = prefs['AetherUI']
+assert ui['viewMode'] == 'rings'
+assert ui['colorScheme'] == 'ember'
+assert ui['fontChoice'] == 'DejaVu Sans'
+assert ui.getboolean('hideUnavailableAccounts') is False
+assert ui.getint('hotspotRevision') == 1 and ui.getint('hotspotSize') == 40
+assert ui.getint('motionRevision') == 5
+PY
 if grep -Ei 'failed to load configuration|TypeError:|ReferenceError:|Cannot assign to non-existent property|ERROR:' "$work/qs.log"; then exit 1; fi

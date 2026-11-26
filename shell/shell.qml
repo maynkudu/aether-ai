@@ -11,14 +11,180 @@ import QtCore
 ShellRoot {
     id: root
     property var allAccounts: []
-    property var accounts: allAccounts.filter(a => !hiddenProviders.includes(logo(a.provider)) && !hiddenAccounts.includes(String(a.id)))
+    property var clientUsage: []
+    property bool usageReady: false
+    property double analyticsUpdatedAt: 0
+    function usageSum(rows) {
+        let total={inputTokens:0,outputTokens:0,cachedInputTokens:0,totalTokens:0,steps:0,costUsd:null,costComplete:true,tokensComplete:true}
+        for(let row of rows) {
+            for(let key of ["inputTokens","outputTokens","cachedInputTokens","totalTokens","steps"]) total[key]+=Number(row[key] || 0)
+            if(typeof row.costUsd === "number") total.costUsd=Number(total.costUsd || 0)+row.costUsd
+            else total.costComplete=false
+            if(row.costComplete === false) total.costComplete=false
+            if(row.tokensComplete === false) total.tokensComplete=false
+        }
+        return total
+    }
+    function codexUsage(rows) {
+        return usageSum(rows.map(r => ({inputTokens:r.inputTokens,outputTokens:r.outputTokens,cachedInputTokens:r.cachedInputTokens,totalTokens:r.totalTokens,steps:r.requestCount,costUsd:r.estimatedCostUsd})))
+    }
+    function accountUsage(account) {
+        let client=root.logo(account.provider)
+        if(client === "codex") {
+            let rows=root.analyticsRows.filter(r => r.id === account.id)
+            return rows.length ? {available:true,totals:codexUsage(rows),scope:"This account",sourceKey:"codex:"+account.id,estimated:true} : {available:false}
+        }
+        if(client === "opencode") {
+            if(root.openCodeAnalytics.status !== "ok") {
+                if(account.authKind === "free" && account.activity) return {available:true,totals:account.activity,scope:"Enabled free models · cached 7 days",sourceKey:"opencode:free",periodDays:7,partial:true}
+                return {available:false}
+            }
+            let models=root.openCodeModels
+            let scope="All OpenCode usage on this device"
+            let source=account.usageProvider || "device"
+            if(account.authKind === "free") {
+                let ids=(account.freeModels || []).map(m => m.providerID+"/"+(m.modelID || m.id))
+                models=models.filter(m => ids.includes(m.providerID+"/"+m.modelID));scope="Enabled free models"
+            } else if(account.usageProvider) {
+                models=models.filter(m => m.providerID === account.usageProvider);scope=account.usageProvider+" through OpenCode"
+                if(!models.length) { models=root.openCodeModels;scope="All OpenCode usage on this device";source="device" }
+            }
+            if(!models.length) return {available:false}
+            let totals=usageSum(models)
+            return {available:true,totals:totals,scope:scope,sourceKey:account.authKind === "free" ? "opencode:free" : "opencode:"+source,shared:source === "device" && account.authKind !== "free",estimated:true}
+        }
+        let data=root.clientUsage.find(c => c.provider === account.provider)
+        if(!data || data.status !== "ok") return {available:false}
+        let home=(data.accounts || []).find(p => p.id === account.id)
+        if(home) return home.status === "empty" ? {available:false} : {available:true,totals:home.totals,scope:"This client profile",sourceKey:client+":"+account.id,estimated:data.estimated,partial:data.partial}
+        let exact=(data.providers || []).find(p => p.providerID === account.usageProvider)
+        return {available:true,totals:exact ? exact.totals : data.totals,scope:exact ? account.usageProvider+" through "+account.provider : "All "+account.provider+" usage on this device",sourceKey:client+":"+(exact ? account.usageProvider : "device"),shared:!exact,estimated:data.estimated,partial:data.partial}
+    }
+    property var overviewClients: {
+        let result=[]
+        let visibleClients=Array.from(new Set(root.accounts.map(a => a.provider)))
+        let codex=root.analyticsRows
+        if(codex.length && visibleClients.includes("Codex")) result.push({provider:"Codex",totals:codexUsage(codex)})
+        if(visibleClients.includes("OpenCode") && !root.hiddenProviders.includes("opencode") && root.openCodeAnalytics.status === "ok") result.push({provider:"OpenCode",totals:root.openCodeAnalytics.totals})
+        for(let client of root.clientUsage) if(visibleClients.includes(client.provider) && client.status === "ok" && !root.hiddenProviders.includes(root.logo(client.provider))) result.push(client)
+        return result
+    }
+    property int visibleClientCount: new Set(root.accounts.map(a => a.provider)).size
+    property string overviewHeading: root.accounts.length+" account"+(root.accounts.length===1?"":"s")+". "+visibleClientCount+" client"+(visibleClientCount===1?"":"s")+"."
+    property var overviewTotals: usageSum(overviewClients.map(c => c.totals))
+    property int quotaAccountCount: accounts.filter(a => (a.windows || []).length > 0).length
+    property int attentionAccountCount: accounts.filter(a => ["login_required","forbidden","rate_limited"].includes(a.status)).length
+    property string usagePeriodText: analyticsPeriod === "1" ? "Last 24 hours" : "Last "+analyticsPeriod+" days"
+    function usageCost(totals) { return totals.costUsd === 0 ? "—" : root.costText(totals.costUsd) }
+    function accountHasData(account) { return (account.windows || []).length>0 || (account.authKind === "free" && (account.freeModels || []).length>0) || root.hasUsageData(root.accountUsage(account)) }
+    function hasUsageData(usage) { return !!usage.available }
+    function authTier(account) {
+        if(["oauth","chatgpt"].includes(account.authKind)) return 0
+        if(account.authKind === "api_key") return 1
+        return 2
+    }
+    function authLabel(account) {
+        return root.authTier(account) === 0 ? "OAuth" : account.authKind === "api_key" ? "API key" : account.authKind === "free" ? "Free models" : account.authKind === "console" ? "Console" : ""
+    }
+    function accountRows(accounts) {
+        let oauth=accounts.filter(r => root.authTier(r.account)===0)
+        let api=accounts.filter(r => root.authTier(r.account)===1)
+        let other=accounts.filter(r => root.authTier(r.account)===2)
+        let rows=[]
+        if(oauth.length===1 && api.length===1) rows.push([oauth[0],api[0]])
+        else for(let list of [oauth,api]) for(let i=0;i<list.length;i+=2) rows.push(list.slice(i,i+2))
+        for(let i=0;i<other.length;i+=2) rows.push(other.slice(i,i+2))
+        return rows
+    }
+    function overviewGroups() {
+        let groups=[]
+        for(let account of root.accounts) {
+            let usage=root.accountUsage(account)
+            let hasLimits=(account.windows || []).length>0
+            let hasData=hasLimits || root.hasUsageData(usage)
+            let group=groups.find(g => g.provider===account.provider)
+            if(!group) { group={provider:account.provider,accounts:[],sharedUsage:[],sharedKeys:[],hasData:false};groups.push(group) }
+            group.hasData=group.hasData || hasData
+            group.accounts.push({account:account,usage:usage,hasLimits:hasLimits,hasData:hasData})
+        }
+        for(let group of groups) {
+            let keys=[]
+            for(let row of group.accounts) if(row.usage.available && !keys.includes(row.usage.sourceKey)) keys.push(row.usage.sourceKey)
+            for(let key of keys) {
+                let matches=group.accounts.filter(r => r.usage.sourceKey===key && root.hasUsageData(r.usage))
+                if(matches.length>1) { group.sharedKeys.push(key);group.sharedUsage.push(matches[0].usage) }
+            }
+            group.accounts.sort((a,b) => root.authTier(a.account)-root.authTier(b.account) || Number(b.hasData)-Number(a.hasData) || String(a.account.name).localeCompare(String(b.account.name)))
+            group.rows=root.accountRows(group.accounts)
+        }
+        let order=["Codex","OpenCode","Pi","Claude Code"]
+        return groups.sort((a,b) => Number(b.hasData)-Number(a.hasData) || order.indexOf(a.provider)-order.indexOf(b.provider))
+    }
+    property var overviewAccountGroups: overviewGroups()
+    function accountSummary(account) {
+        if(account.authKind === "free") return root.compactValue(account)+" free models"
+        if((account.windows || []).length) return account.status === "stale" ? "Last known limits" : "Limits available"
+        if(account.status === "login_required") return "Sign-in needed for limits"
+        return "Limits not reported"
+    }
+
+    property var accounts: allAccounts.filter(a => !removedProvider(a.provider) && !hiddenProviders.includes(logo(a.provider)) && !hiddenAccounts.includes(String(a.id)) && (!prefs.hideUnavailableAccounts || !root.usageReady || root.accountHasData(a)))
+    function compactAccount(account) {
+        return account.authKind === "free" || (!root.windowFor(account,300) && !root.windowFor(account,10080))
+    }
+    property var quotaAccounts: accounts.filter(a => !compactAccount(a))
+    property var compactAccounts: accounts.filter(a => compactAccount(a))
+    function extraWindows(account) { return (account.windows || []).filter(w => Number(w.minutes) !== 300 && Number(w.minutes) !== 10080) }
+    function windowLabel(window) { return window.label || (window.minutes === 10080 ? "Weekly" : window.minutes === 300 ? "5-hour session" : window.minutes ? (window.minutes/60) + "h window" : "Quota") }
+    function windowValue(window) { return window.remainingUsd !== undefined ? "$" + Number(window.remainingUsd).toFixed(2) + " left" : root.remaining(window) < 0 ? "—" : Math.round(root.remaining(window)) + "%" }
+    function compactTitle(account) { return account.authKind === "free" ? "" : (account.windows || []).length ? "Budget" : root.authLabel(account) }
+    function compactValue(account) {
+        if (account.status === "stale") return "Last known data"
+        if (account.authKind === "free") return (account.freeModels || []).length + " enabled"
+        if ((account.windows || []).length) return account.windows.length + " limit" + (account.windows.length === 1 ? "" : "s")
+        if (account.status === "no_allowance") return "No Go allowance"
+        return !root.usageReady ? "Reading usage" : root.hasUsageData(root.accountUsage(account)) ? "Local usage" : "No local data"
+    }
+    function compactHint(account) {
+        if (account.authKind === "free") return (account.freeModels || []).slice(0,12).map(m => m.name).join("\n") + ((account.freeModels || []).length > 12 ? "\nMore models in OpenCode" : "") + "\nRemaining free limits aren't reported."
+        return root.accountStatus(account)
+    }
+    function freeLimitModels(account) {
+        return (account.freeModels || []).filter(m => m.observation && m.observation.limitObservedAt && !(m.observation.lastSuccessAt > m.observation.limitObservedAt))
+            .sort((a,b) => Number(b.observation.retryAt > root.now)-Number(a.observation.retryAt > root.now) || b.observation.limitObservedAt-a.observation.limitObservedAt)
+    }
+    function freeLimitText(model) {
+        let o = model.observation || {}
+        if (o.lastSuccessAt > o.limitObservedAt) return "Used after last limit"
+        if (o.retryAt > root.now) return root.resetText(o.retryAt/1000).replace("Resets in", "Retry in")
+        if (o.retryAt) return "Retry time passed"
+        return "Limit observed; retry time unknown"
+    }
+    function freeActivityText(account) {
+        let activity = account.activity
+        if (!activity) return "Local usage unavailable"
+        return activity.days + " days · " + root.countText(activity.steps) + " steps · " + root.countText(activity.totalTokens) + " tokens" + (account.activityStatus === "stale" ? " · cached" : account.activityStatus === "partial" ? " · partial" : "")
+    }
+    function openCodeModelName(model) {
+        let free = allAccounts.find(a => a.authKind === "free")
+        let entry = free && (free.freeModels || []).find(m => m.modelID === model.modelID && m.providerID === model.providerID)
+        return entry ? entry.name : model.modelID
+    }
+    function openCodeObservation(model) {
+        let free = allAccounts.find(a => a.authKind === "free")
+        return free && (free.freeModels || []).find(m => m.modelID === model.modelID && m.providerID === model.providerID) || ({})
+    }
+    function removedProvider(provider) {
+        let id = String(provider || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+        return id.startsWith("agentrouter") || id.startsWith("freegg")
+    }
     // Keep existing gauge delegates alive across cache refreshes.
     property var ringAccountIds: []
     function syncRingAccounts() {
-        let ids = accounts.map(a => String(a.id))
+        let ids = quotaAccounts.map(a => String(a.id))
         if (JSON.stringify(ids) !== JSON.stringify(ringAccountIds)) ringAccountIds = ids
     }
-    onAccountsChanged: syncRingAccounts()
+    onQuotaAccountsChanged: syncRingAccounts()
     property var hiddenProviders: parseList(prefs.hiddenProviders)
     property var hiddenAccounts: parseList(prefs.hiddenAccounts)
     function parseList(value) { try { let a = JSON.parse(value); return Array.isArray(a) ? a : [] } catch(e) { return [] } }
@@ -28,8 +194,9 @@ ShellRoot {
         prefs[key] = JSON.stringify(list)
     }
     property var providerCatalog: {
-        let result = [{id:"codex",name:"Codex"},{id:"claude",name:"Claude Code"},{id:"grok",name:"Grok"},{id:"opencode",name:"OpenCode"},{id:"pi",name:"Pi"},{id:"openrouter",name:"OpenRouter"},{id:"agentrouter",name:"AgentRouter"},{id:"deepseek",name:"DeepSeek"},{id:"freegg",name:"FreeGG"}]
+        let result = [{id:"codex",name:"Codex"},{id:"claude",name:"Claude Code"},{id:"opencode",name:"OpenCode"},{id:"pi",name:"Pi"}]
         for (let a of allAccounts) {
+            if (removedProvider(a.provider)) continue
             let id = logo(a.provider)
             if (id && !result.some(p => p.id === id)) result.push({id:id,name:a.provider})
         }
@@ -37,12 +204,11 @@ ShellRoot {
     }
     property var providerGroups: {
         let groups = [
-            {name:"First-party agents",note:"Provider-operated coding agents",ids:["codex","claude","grok"]},
-            {name:"Harnesses & routing platforms",note:"Agent runtimes and multi-model access",ids:["opencode","pi","openrouter"]},
-            {name:"Aggregators",note:"Third-party access providers",ids:["agentrouter","freegg"]},
+            {name:"First-party agents",note:"Provider-operated coding agents",ids:["codex","claude"]},
+            {name:"Coding clients",note:"Quotas belong to each connected provider account",ids:["opencode","pi"]},
             {name:"Other providers",note:"Additional model providers and integrations",ids:[]}
         ]
-        let assigned = groups[0].ids.concat(groups[1].ids,groups[2].ids), rows = []
+        let assigned = groups[0].ids.concat(groups[1].ids), rows = []
         for (let g of groups) {
             let items = providerCatalog.filter(p => g.ids.length ? g.ids.includes(p.id) : !assigned.includes(p.id))
             if (items.length) {
@@ -158,19 +324,26 @@ ShellRoot {
     property string analyticsPeriod: "7"
     property string analyticsMetric: "tokens"
     property var analyticsSamples: []
+    property var openCodeAnalytics: ({status:"not_detected"})
+    property var openCodeModels: (openCodeAnalytics.models || []).slice().sort((a,b) => b.totalTokens-a.totalTokens)
     property string analyticsStatus: "No local token usage found"
     Process {
         id: analyticsReader
-        command: [Quickshell.env("HOME") + "/.local/bin/aether", "analytics", root.analyticsPeriod]
+        property string requestedPeriod: "7"
+        command: [Quickshell.env("HOME") + "/.local/bin/aether", "analytics", requestedPeriod]
+        onExited: if (requestedPeriod !== root.analyticsPeriod) Qt.callLater(root.refreshAnalytics)
         stdout: StdioCollector { onStreamFinished: {
+            if (analyticsReader.requestedPeriod !== root.analyticsPeriod) return
             try {
                 let data = JSON.parse(text)
                 root.analyticsSamples = data.samples || []
+                root.openCodeAnalytics = data.openCode || ({status:"not_detected"}); root.clientUsage=data.clients || []
+                root.usageReady = true; root.analyticsUpdatedAt = Date.now()
                 root.analyticsStatus = root.analyticsSamples.length ? "Local Codex session logs" : "No local token usage found for this period"
-            } catch(e) { root.analyticsSamples = []; root.analyticsStatus = "Token usage unavailable; install the updated backend" }
+            } catch(e) { root.analyticsSamples = []; root.clientUsage = []; root.usageReady = true; root.openCodeAnalytics = ({status:"unavailable"}); root.analyticsStatus = "Token usage unavailable; install the updated backend" }
         } }
     }
-    function refreshAnalytics() { if (!analyticsReader.running) analyticsReader.running = true }
+    function refreshAnalytics() { if (!analyticsReader.running) { analyticsReader.requestedPeriod = analyticsPeriod; analyticsReader.running = true } }
     property var analyticsRows: {
         return analyticsSamples.filter(a => !hiddenProviders.includes(logo(a.provider)) && !hiddenAccounts.includes(String(a.id)))
     }
@@ -209,8 +382,6 @@ ShellRoot {
         case "pi": return "#57b896"
         case "openrouter": return "#b68bdd"
         case "deepseek": return "#4c9bd1"
-        case "agentrouter": return "#e6bb65"
-        case "freegg": return "#8fb879"
         default: return weeklyColor
         }
     }
@@ -243,13 +414,20 @@ ShellRoot {
     }
     function costText(value) {
         if (value === null || value === undefined || !isFinite(Number(value))) return "—"
+        if (Number(value) === 0) return "—"
         if (Number(value) < 0.01) return "<$0.01"
         return "$" + Number(value).toFixed(2)
     }
-    onAnalyticsPeriodChanged: { refreshAnalytics(); if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0) }
+    onAnalyticsPeriodChanged: { analyticsSamples = []; clientUsage = []; usageReady = false; openCodeAnalytics = ({status:"loading"}); refreshAnalytics(); if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0) }
     onAnalyticsMetricChanged: if (settingsOpen && settingsTab === "Analytics") pageDataClock.jump(0)
     onSettingsOpenChanged: if (settingsOpen) { pageSpring.jump(0); pageDataClock.jump(0); if (!reader.running) reader.running = true; refreshAnalytics(); if (settingsTab === "Updates") runUpdater("status") } else if (activeDropdown) activeDropdown.close()
-    Timer { interval: 30000; repeat: true; running: root.settingsOpen; onTriggered: { root.now = Date.now(); root.refreshAnalytics() } }
+    Timer { interval: 30000; repeat: true; running: root.settingsOpen || root.opened; onTriggered: { root.now = Date.now(); root.refreshAnalytics() } }
+    HyprlandFocusGrab {
+        id: menuGrab
+        windows: [settingsPanel,drawer]
+        active: root.hyprlandAvailable && (root.settingsOpen || root.opened)
+        onCleared: if (root.settingsOpen || root.opened) root.dismissAll()
+    }
     property string accountSnapshot: ""
     property var brandIndex: ({})
     property string brandDirectory: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/brand-icons"
@@ -264,11 +442,13 @@ ShellRoot {
             if (prefs.dataMotionMs === 1800) prefs.dataMotionMs = 450
             prefs.motionRevision = 5
         }
+        if (prefs.motionStyle === "liquid") prefs.motionStyle = "smooth"
         if (prefs.hotspotRevision < 1) {
             if (prefs.hotspotSize < 32) prefs.hotspotSize = 40
             prefs.hotspotRevision = 1
         }
         syncRingAccounts()
+        Qt.callLater(root.refreshAnalytics)
         scheduleFullscreenRefresh()
         if (!reader.running) reader.running = true
         if (!brandReader.running) brandReader.running = true
@@ -281,14 +461,15 @@ ShellRoot {
         } }
     }
     function brandSource(name) {
-        if (name === "codex") name = "openai"
-        if (name === "freegg") name = "agentrouter"
         let variant = root.lightTheme ? "light" : "dark"
+        if (name === "openai") name = "codex"
+        if (["codex","claude","opencode","pi"].includes(name)) return Qt.resolvedUrl("provider-logos/" + name + "-" + variant + ".png")
         let entry = root.brandIndex[name]
         let filename = entry && entry[variant]
         if (filename !== name + "-" + variant + ".png" || !/^[a-z0-9]{1,64}-(dark|light)\.png$/.test(filename)) return ""
         return Qt.resolvedUrl("brand-icons/" + filename)
     }
+    onOpenedChanged: if (opened && Date.now()-analyticsUpdatedAt > 30000) root.refreshAnalytics()
     property bool opened: false
     property bool pinned: false
     property double now: Date.now()
@@ -332,7 +513,7 @@ ShellRoot {
     property string sans: prefs.fontChoice !== "auto" && installedFonts.includes(prefs.fontChoice) ? prefs.fontChoice : installedFonts.indexOf("Inter") >= 0 ? "Inter" : installedFonts.indexOf("Manrope") >= 0 ? "Manrope" : installedFonts.indexOf("Rubik") >= 0 ? "Rubik" : "Noto Sans"
     property string monoFont: installedFonts.indexOf("JetBrains Mono") >= 0 ? "JetBrains Mono" : sans
     property real animatedHeight: naturalHeight
-    property real naturalHeight: Math.max(148, Math.min(drawer.height - 12, content.implicitHeight + 44))
+    property real naturalHeight: Math.max(148, Math.min(drawer.height - 12, content.implicitHeight + 32))
     Behavior on animatedHeight { NumberAnimation { duration: root.motionDuration(0.55); easing.type: Easing.InOutSine } }
     // Independent interface and data clocks, advanced by Qt's animation driver.
     function motionDuration(factor) {
@@ -351,6 +532,7 @@ ShellRoot {
         property real factor: 1
         property bool dataMotion: false
         property bool proportional: false
+        property bool animateInitial: false
         property int curve: Easing.OutCubic
         property bool instant: prefs.motionStyle === "reduced"
         property bool ready: false
@@ -372,11 +554,13 @@ ShellRoot {
             value = instant ? targetValue : next
             retarget()
         }
-        onTargetValueChanged: retarget()
+        // Let direction-dependent bindings settle before selecting the timing.
+        onTargetValueChanged: Qt.callLater(retarget)
         onInstantChanged: retarget()
         Component.onCompleted: {
-            value = targetValue
+            value = animateInitial && !instant ? 0 : targetValue
             ready = true
+            if (animateInitial) retarget()
         }
         NumberAnimation {
             id: tween
@@ -387,22 +571,21 @@ ShellRoot {
     function unit(v) { return Math.max(0, Math.min(1, v)) }
     function smooth(t) { t = unit(t); return t*t*(3-2*t) }
     function quintic(t) { t = unit(t); return t*t*t*(t*(t*6-15)+10) }
-    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: root.opened ? 1 : 2/3; curve: root.opened ? Easing.OutCubic : Easing.InCubic }
-    property real reveal: unit(drawerSpring.value)
-    MotionValue { id: drawerContentSpring; targetValue: root.opened ? 1 : 0; factor: root.opened ? 1.20 : 2/3; proportional: true; curve: Easing.Linear }
+    // One reversible timeline keeps the panel, cards and their details in order.
+    // Geometry settles first; each content stage gets the same easing window.
+    MotionValue { id: drawerSpring; targetValue: root.opened ? 1 : 0; proportional: true; factor: 2.2; curve: Easing.Linear }
+    property real reveal: quintic(drawerSpring.value / 0.62)
+    function drawerBounce(progress) {
+        if (prefs.motionStyle === "reduced") return 0
+        let phase = unit((progress - 0.35) / 0.65)
+        let amplitude = Math.min(0.012, 4 / Math.max(1, panelWidth, panelHeight))
+        return amplitude * Math.sin(2 * Math.PI * phase) * Math.pow(Math.sin(Math.PI * phase), 2)
+    }
     MotionValue { id: settingsSpring; targetValue: root.settingsOpen ? 1 : 0; proportional: true; factor: root.settingsOpen ? 1 : 2/3 }
     property real settingsReveal: unit(settingsSpring.value)
     MotionValue { id: settingsContentSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
     MotionValue { id: pageSpring; targetValue: root.settingsOpen ? 1 : 0; factor: 1.05; proportional: true; curve: Easing.Linear }
     MotionValue { id: pageDataClock; targetValue: root.settingsOpen ? 1 : 0; factor: 1.40; dataMotion: true; proportional: true; curve: Easing.Linear }
-    // Ring fill has its own constant-rate clock, independent of the panel
-    // reveal and opacity. Both arcs start together and settle at their data.
-    MotionValue { id: ringClock; targetValue: root.opened ? 1 : 0; factor: 1.40; dataMotion: true; proportional: true; curve: Easing.Linear }
-    function ringProgress(i) {
-        if (prefs.motionStyle === "reduced") return 1
-        let delay = 0.20 + (prefs.staggerEnabled ? Math.min(i,8)*0.015 : 0)
-        return unit((ringClock.value-delay)/0.68)
-    }
     function heightProgress(p) { return p }
     function pageStage(i) {
         if (prefs.motionStyle === "reduced") return 1
@@ -422,26 +605,32 @@ ShellRoot {
     }
     property real finalPanelX: 6 + (drawer.width-12-panelWidth)*ax
     property real finalPanelY: 6 + (drawer.height-12-panelHeight)*ay
-    function liquidRadius(w,h,p,finalRadius) {
-        let capsule = Math.min(w,h)/2
-        if (prefs.motionStyle !== "liquid") return Math.min(finalRadius,capsule)
-        let t = smooth((p-0.20)/0.80)
-        return Math.min(capsule,capsule*(1-t)+finalRadius*t)
-    }
     // Anchor coordinates in the stable overlay: 0 = near edge, 0.5 = centre, 1 = far edge.
     property real ax: prefs.hotspot.indexOf("left") >= 0 ? 0 : prefs.hotspot.indexOf("right") >= 0 ? 1 : 0.5
     property real ay: prefs.hotspot.indexOf("top") >= 0 ? 0 : prefs.hotspot.indexOf("bottom") >= 0 ? 1 : 0.5
     property real panelWidth: Math.max(1, drawer.width - 12)
     property real panelHeight: Math.min(drawer.height - 12, animatedHeight)
     property bool rings: prefs.viewMode === "rings"
-    onRingsChanged: if (opened) ringClock.jump(0)
     property color sessionColor: tone("primary", lightTheme ? "#222222" : "#e8e8e8")
     property color weeklyColor: tone("tertiary", lightTheme ? "#606060" : "#9b9b9b")
+    property var drawerStages: {
+        let next = 2
+        let ordered = accounts.filter(a => !compactAccount(a)).concat(accounts.filter(a => compactAccount(a)))
+        let starts = ordered.map(account => {
+            let start = next
+            let compact = compactAccount(account)
+            let status = account.status !== "ok" ? 1 : 0
+            next += compact ? 3 + (account.windows || []).length : 2 + status + (rings ? 2 + root.extraWindows(account).length : (account.windows || []).length)
+            return start
+        })
+        let footer = Math.max(3,next)
+        return {accounts:starts,footer:footer,count:footer+1}
+    }
     function stagger(i) {
         if (prefs.motionStyle === "reduced") return root.opened ? 1 : 0
-        let delay = prefs.staggerEnabled ? Math.min(0.58,Math.max(0,i)*0.09) : 0
-        let start = 0.10 + delay
-        return smooth((unit(drawerContentSpring.value)-start)/(1-start))
+        let spacing = prefs.staggerEnabled ? Math.min(0.055,0.26/Math.max(1,drawerStages.count-1)) : 0
+        let start = 0.44 + Math.max(0,i)*spacing
+        return quintic((drawerSpring.value-start)/0.30)
     }
     function windowFor(account, minutes) {
         let windows = account.windows || []
@@ -451,7 +640,7 @@ ShellRoot {
         return w && w.remaining !== null && w.remaining !== undefined && isFinite(Number(w.remaining)) ? Math.max(0, Math.min(100, Number(w.remaining))) : -1
     }
     property bool settingsOpen: false
-    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property bool fullscreenOverride: false; property int motionMs: 240; property int dataMotionMs: 450; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 440; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 40; property int hotspotRevision: 0; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "liquid"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true }
+    Settings { id: prefs; location: "file:" + (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/quickshell/aether/preferences.ini"; category: "AetherUI"; property bool followTheme: true; property bool hoverEnabled: true; property bool fullscreenOverride: false; property int motionMs: 240; property int dataMotionMs: 450; property int dismissDelay: 350; property int drawerWidth: 390; property int layoutWidth: 360; property int cacheSeconds: 5; property string viewMode: "grid"; property string hotspot: "top-right"; property bool staggerEnabled: true; property string hiddenProviders: "[]"; property string hiddenAccounts: "[]"; property string chartMode: "line"; property int hotspotSize: 40; property int hotspotRevision: 0; property string fontChoice: "auto"; property int cardRadius: 24; property string colorScheme: "mono"; property bool edgeFades: true; property int fadeDepth: 28; property bool localShortcutsEnabled: true; property bool globalShortcutsEnabled: true; property string shortcutBindings: "{}"; property string bindSyntax: "conf"; property string motionStyle: "smooth"; property bool autoUpdate: false; property string updateChannel: "stable"; property int motionRevision: 0; property real trackpadSpeed: 1.6; property bool wispMotion: true; property bool hideUnavailableAccounts: false }
     property bool hyprlandAvailable: Hyprland.eventSocketPath.length > 0
     property bool activeFullscreen: false
     property bool fullscreenKnown: false
@@ -496,9 +685,23 @@ ShellRoot {
         if (s === "pi" || s === "piai") return "pi"
         if (s.includes("openrouter")) return "openrouter"
         if (s.includes("deepseek")) return "deepseek"
-        if (s.includes("agentrouter")) return "agentrouter"
-        if (s.includes("freegg")) return "freegg"
         return /^[a-z0-9]{1,64}$/.test(s) ? s : ""
+    }
+    function accountStatus(account) {
+        switch (account.status) {
+        case "ok": return "Available"
+        case "api_key": return "This API key doesn't expose usage limits."
+        case "login_required": return "Sign in again in " + account.provider
+        case "unsupported": return "Quota usage is unavailable for this sign-in"
+        case "rate_limited": return "Provider rate limit reached. Waiting to retry."
+        case "forbidden": return "Provider access restricted"
+        case "no_allowance": return "No Go allowance or Console budget reported"
+        case "free_available": return "Free models enabled. Remaining free limits aren't reported."
+        case "free_unavailable": return "No free models enabled in OpenCode"
+        case "unavailable": return "Quota usage unavailable"
+        case "stale": return "Offline · last known quota"
+        default: return String(account.status || "")
+        }
     }
 
     function tone(key, fallback) { return activePalette[key] || fallback }
@@ -514,7 +717,6 @@ ShellRoot {
     component ProviderIcon: Item {
         id: glyph
         property string name: ""
-        property string fallback: ""
         // First-party provider marks have their own namespace; never reuse legacy provider SVGs.
         Image {
             id: mono
@@ -531,9 +733,30 @@ ShellRoot {
             fillMode: Image.PreserveAspectFit
             visible: status === Image.Ready
         }
-        Text { anchors.centerIn: parent; text: glyph.fallback; color: root.iconColor; font.family: root.sans; font.pixelSize: 18; visible: mono.status !== Image.Ready }
     }
     component MText: Text { font.family: root.sans; color: root.foreground; font.pixelSize: 14; renderType: Text.QtRendering }
+    component QuotaHint: ToolTip {
+        id: hint
+        popupType: Popup.Item
+        delay: 240; timeout: 5000
+        padding: 9
+        implicitWidth: Math.min(280,implicitContentWidth + leftPadding + rightPadding)
+        transformOrigin: Popup.Bottom
+        contentItem: MText { text: hint.text; font.pixelSize: 11; color: root.foreground; wrapMode: Text.WordWrap; textFormat: Text.PlainText }
+        background: Rectangle { color: root.track; radius: 10 }
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: root.controlDuration(); easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: root.controlDuration(); easing.type: Easing.OutCubic }
+            }
+        }
+        exit: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; to: 0; duration: root.controlDuration(); easing.type: Easing.InCubic }
+                NumberAnimation { property: "scale"; to: 0.96; duration: root.controlDuration(); easing.type: Easing.InCubic }
+            }
+        }
+    }
     // Feather-derived 24 px paths (MIT); see FEATHER-LICENSE.
     function iconPath(name) {
         switch (name) {
@@ -596,7 +819,7 @@ ShellRoot {
         background: Rectangle {
             radius: height/2
             color: positionButton.selected ? root.primary : positionButton.down || positionButton.hovered ? root.track : "transparent"
-            border.width: positionButton.activeFocus ? 2 : 0; border.color: root.foreground
+            border.width: positionButton.visualFocus ? 2 : 0; border.color: root.foreground
             Behavior on color { ColorAnimation { duration: root.controlDuration() } }
         }
         contentItem: Item {
@@ -614,7 +837,7 @@ ShellRoot {
         background: Rectangle {
             radius: button.down ? 14 : button.hovered ? 16 : 22
             color: button.hovered ? root.track : root.buttonColor
-            border.width: button.activeFocus ? 2 : 0; border.color: root.primary
+            border.width: button.visualFocus ? 2 : 0; border.color: root.primary
             Behavior on radius { NumberAnimation { duration: root.controlDuration(); easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: root.controlDuration() } }
         }
@@ -622,12 +845,13 @@ ShellRoot {
     }
     component MSwitch: Switch {
         id: control
+        property bool quietOutline: false
         implicitHeight: 36
         indicator: Rectangle {
             implicitWidth: 48; implicitHeight: 28
             x: control.leftPadding; y: (control.height - height) / 2
             radius: 14; color: control.checked ? root.primary : root.track
-            border.width: control.checked ? 0 : 1; border.color: root.outline
+            border.width: control.visualFocus ? 2 : control.checked || control.quietOutline ? 0 : 1; border.color: control.visualFocus ? root.primary : root.outline
             Rectangle {
                 id: switchThumb
                 MotionValue { id: switchSpring; targetValue: control.checked ? 1 : 0; factor: 0.4 }
@@ -652,8 +876,6 @@ ShellRoot {
             x: control.leftPadding + control.visualPosition * Math.max(0, control.availableWidth - width)
             y: (control.height - height) / 2
             implicitWidth: 16; implicitHeight: 24; radius: 8; color: root.primary
-            MotionValue { id: sliderSpring; targetValue: control.pressed ? 1.075 : 1; factor: 0.4 }
-            scale: prefs.motionStyle === "liquid" ? sliderSpring.value : 1
         }
     }
     property color danger: tone("error", lightTheme ? "#a52d2d" : "#ffffff")
@@ -665,7 +887,7 @@ ShellRoot {
         let d = Math.floor(seconds / 86400), h = Math.floor(seconds / 3600) % 24, m = Math.floor(seconds / 60) % 60
         return "Resets in " + (d ? d + "d " : "") + (h ? h + "h " : "") + m + "m"
     }
-    function show() { if (!canOpenDrawer) return; closeTimer.stop(); if (!opened) { opened = true; ringClock.jump(0) } }
+    function show() { if (!canOpenDrawer) return; closeTimer.stop(); opened = true }
     function hide() { pinned = false; opened = false; closeTimer.stop() }
     Timer { id: closeTimer; interval: prefs.dismissDelay; onTriggered: if (!root.settingsOpen && !root.pinned && !drawerHover.hovered) root.hide() }
     Process {
@@ -684,6 +906,11 @@ ShellRoot {
         function toggle(): void { if (root.settingsOpen) root.dismissAll(); else if (root.opened) root.hide(); else if (root.canOpenDrawer) { root.pinned = true; root.show() } }
         function isOpen(): bool { return root.opened }
         function canShow(): bool { return root.canOpenDrawer }
+        function summary(): string {
+            return JSON.stringify({viewMode:prefs.viewMode,colorScheme:prefs.colorScheme,fontChoice:prefs.fontChoice,motionRevision:prefs.motionRevision,hotspotRevision:prefs.hotspotRevision,opened:root.opened,settingsOpen:root.settingsOpen,hideUnavailable:prefs.hideUnavailableAccounts,usageReady:root.usageReady,visibleAccounts:root.accounts.length,totalAccounts:root.allAccounts.length,
+                services:root.overviewAccountGroups.map(group => ({provider:group.provider,rows:group.rows.map(row => row.map(item => root.authLabel(item.account)))})),
+                usageClients:root.overviewClients.map(client => ({provider:client.provider,tokens:client.totals.totalTokens,complete:client.totals.tokensComplete !== false}))})
+        }
         function analytics(): void { root.openSettings("Analytics") }
         function refresh(): void { root.refreshView() }
         function dismiss(): void { root.dismissAll() }
@@ -818,7 +1045,7 @@ ShellRoot {
             left: root.ax === 0
             right: root.ax === 1
         }
-        implicitWidth: Math.min(prefs.layoutWidth + 12, screen ? screen.width : 452)
+        implicitWidth: Math.min(prefs.layoutWidth + 12, screen ? screen.width : 372)
         implicitHeight: Math.min(780, screen ? screen.height : 780)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
@@ -858,18 +1085,22 @@ ShellRoot {
             height: seed + (root.panelHeight - seed) * root.reveal
             visible: root.opened || root.reveal > 0.0001
             enabled: root.opened
-            radius: root.liquidRadius(width,height,root.reveal,30)
+            radius: Math.min(24,width/2,height/2)
             color: root.surface
+            transform: Scale {
+                origin.x: body.width * root.ax; origin.y: body.height * root.ay
+                xScale: 1 + root.drawerBounce(drawerSpring.value); yScale: xScale
+            }
 
             clip: true
             // The content is always measured at the FINAL width. No text
             // reflow, scale, or layout resizing during the reveal.
             Flickable {
                 id: scroll
-                x: root.finalPanelX + 22 - body.x
-                y: root.finalPanelY + 22 - body.y
-                width: Math.max(1, drawer.width - 56)
-                height: Math.max(1, root.panelHeight - 44)
+                x: root.finalPanelX + 16 - body.x
+                y: root.finalPanelY + 16 - body.y
+                width: Math.max(1, drawer.width - 44)
+                height: Math.max(1, root.panelHeight - 32)
                 enabled: root.opened && root.reveal > 0.75
                 interactive: enabled && contentHeight > height
                 boundsBehavior: Flickable.StopAtBounds
@@ -881,62 +1112,72 @@ ShellRoot {
                 clip: true
                 ColumnLayout {
                     id: content
-                    width: scroll.width; spacing: 16
+                    width: scroll.width; spacing: 12
                     RowLayout {
                         id: heading
                         opacity: root.stagger(0)
+                        enabled: opacity > 0.5
                         transform: Translate { y: (1 - heading.opacity) * 4 }
-                        Layout.fillWidth: true; spacing: 12
-                        WispMark { Layout.preferredWidth: 38; Layout.preferredHeight: 38; surfaceActive: root.opened }
+                        Layout.fillWidth: true; spacing: 6
+                        WispMark { Layout.preferredWidth: 28; Layout.preferredHeight: 28; surfaceActive: root.opened }
                         ColumnLayout {
                             Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 4
-                            MText { text: "aether.ai"; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -1.3; Layout.fillWidth: true; elide: Text.ElideRight }
-                            MText { text: "AI resource monitor"; color: root.muted; font.pixelSize: 13; Layout.fillWidth: true; elide: Text.ElideRight }
+                            MText { text: "aether.ai"; font.pixelSize: 26; font.weight: Font.DemiBold; font.letterSpacing: -1; Layout.fillWidth: true; elide: Text.ElideRight }
+                            MText { text: "AI resource monitor"; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
-                        MButton { glyph: "refresh"; Layout.alignment: Qt.AlignVCenter; onClicked: root.refreshView() }
-                        MButton { Layout.alignment: Qt.AlignVCenter; onClicked: { root.settingsOpen = true; root.hide() } }
+                        MButton { implicitWidth: 36; implicitHeight: 36; glyph: "refresh"; Layout.alignment: Qt.AlignVCenter; onClicked: root.refreshView() }
+                        MButton { implicitWidth: 36; implicitHeight: 36; Layout.alignment: Qt.AlignVCenter; onClicked: { root.settingsOpen = true; root.hide() } }
                     }
                     RowLayout {
                         id: sectionHeading
                         opacity: root.stagger(1)
                         transform: Translate { y: (1 - sectionHeading.opacity) * 4 }
                         Layout.fillWidth: true
-                        MText { text: "ACCOUNTS · REMAINING QUOTA"; color: root.muted; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 1.1; Layout.fillWidth: true }
+                        MText { text: "ACCOUNTS · REMAINING QUOTA"; color: root.muted; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.6; Layout.fillWidth: true }
                         MText { text: (root.accounts.length < 10 ? "0" : "") + root.accounts.length; color: root.muted; font.pixelSize: 12; font.family: root.monoFont }
                     }
-                    MText { opacity: root.stagger(2); visible: root.accounts.length === 0; text: "No cached accounts. Run aether refresh."; color: root.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8; opacity: root.stagger(1)
+                        MText { text: "Hide unavailable"; font.pixelSize: 11; color: root.muted; Layout.fillWidth: true }
+                        MSwitch { implicitHeight: 28; quietOutline: true; checked: prefs.hideUnavailableAccounts; Accessible.name: "Hide unavailable accounts"; onToggled: { prefs.hideUnavailableAccounts=checked; prefs.sync() } }
+                    }
+                    MText { opacity: root.stagger(2); visible: root.accounts.length === 0; text: prefs.hideUnavailableAccounts && root.allAccounts.length ? "No available accounts. Turn off Hide unavailable to see all accounts." : "No cached accounts. Run aether refresh."; color: root.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                     Repeater {
-                        model: root.rings ? [] : root.accounts
+                        model: root.rings ? [] : root.quotaAccounts
                         delegate: Rectangle {
                             id: accountCard
                             required property var modelData
                             required property int index
-                            opacity: root.stagger(index + 2)
+                            property int revealStage: root.drawerStages.accounts[index] || 2
+                            property int detailStage: revealStage + 2 + (modelData.status !== "ok" ? 1 : 0)
+                            opacity: root.stagger(revealStage)
                             transform: Translate { y: (1 - accountCard.opacity) * 4 }
                             Layout.fillWidth: true
-                            implicitHeight: card.implicitHeight + 36
+                            implicitHeight: card.implicitHeight + 28
                             radius: prefs.cardRadius; color: root.cardColor
                             ColumnLayout {
                                 id: card
-                                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 18
-                                spacing: 15
+                                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 14
+                                spacing: 12
                                 RowLayout {
-                                    Layout.fillWidth: true; spacing: 12
+                                    id: accountHeading
+                                    opacity: root.stagger(accountCard.revealStage + 1)
+                                    transform: Translate { y: (1 - accountHeading.opacity) * 4 }
+                                    Layout.fillWidth: true; spacing: 6
                                     Rectangle {
-                                        Layout.preferredWidth: 44; Layout.preferredHeight: 44
-                                        radius: 16; color: root.buttonColor
-                                        ProviderIcon { anchors.centerIn: parent; width: 24; height: 24; name: root.logo(accountCard.modelData.provider); fallback: String(accountCard.modelData.provider).slice(0, 1).toUpperCase() }
+                                        Layout.preferredWidth: 36; Layout.preferredHeight: 36
+                                        radius: 13; color: root.buttonColor
+                                        ProviderIcon { anchors.centerIn: parent; width: 20; height: 20; name: root.logo(accountCard.modelData.provider) }
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
-                                        MText { text: accountCard.modelData.provider; font.weight: Font.DemiBold; font.pixelSize: 17; Layout.fillWidth: true; elide: Text.ElideRight }
-                                        MText { text: accountCard.modelData.name; color: root.muted; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        MText { text: accountCard.modelData.provider; font.weight: Font.DemiBold; font.pixelSize: 15; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        MText { text: accountCard.modelData.name; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                                     }
                                 }
-                                MText { visible: accountCard.modelData.authKind === "api_key"; text: "API key · quota resources unavailable"; color: root.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                                MText { visible: accountCard.modelData.status !== "ok" && accountCard.modelData.authKind !== "api_key"; text: accountCard.modelData.status; color: root.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                MText { opacity: root.stagger(accountCard.revealStage + 2); visible: accountCard.modelData.status !== "ok"; text: root.accountStatus(accountCard.modelData); color: root.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                                 Repeater {
-                                    model: accountCard.modelData.authKind === "api_key" ? [] : accountCard.modelData.windows || []
+                                    model: accountCard.modelData.windows || []
                                     delegate: ColumnLayout {
                                         required property var modelData
                                         id: quota
@@ -944,17 +1185,18 @@ ShellRoot {
                                         property real remaining: known ? Math.max(0, Math.min(100, Number(modelData.remaining))) : 0
                                         property color indicator: known && remaining < 20 ? root.danger : root.primary
                                         required property int index
-                                        opacity: root.stagger(accountCard.index + 3 + index)
+                                        opacity: root.stagger(accountCard.detailStage + index)
                                         transform: Translate { y: (1 - quota.opacity) * 4 }
-                                        Layout.fillWidth: true; spacing: 8
+                                        MotionValue { id: quotaFill; targetValue: root.opened && quota.opacity > 0.15 ? 1 : 0; dataMotion: true; animateInitial: quota.opacity < 1; factor: 0.75; curve: Easing.InOutCubic }
+                                        Layout.fillWidth: true; spacing: 6
                                         RowLayout {
-                                            Layout.fillWidth: true; spacing: 8
-                                            MText { text: quota.modelData.minutes === 10080 ? "Weekly" : quota.modelData.minutes === 300 ? "5-hour session" : quota.modelData.minutes ? (quota.modelData.minutes / 60) + "h window" : "Quota"; font.pixelSize: 13; font.weight: Font.Medium; Layout.fillWidth: true }
-                                            MText { text: quota.known ? Math.round(quota.remaining) + "%" : "—"; color: quota.indicator; font.family: root.monoFont; font.pixelSize: 19; font.weight: Font.DemiBold; Layout.alignment: Qt.AlignRight }
+                                            Layout.fillWidth: true; spacing: 6
+                                            MText { text: root.windowLabel(quota.modelData); font.pixelSize: 12; font.weight: Font.Medium; Layout.fillWidth: true }
+                                            MText { text: root.windowValue(quota.modelData); color: quota.indicator; font.family: root.monoFont; font.pixelSize: 17; font.weight: Font.DemiBold; Layout.alignment: Qt.AlignRight }
                                         }
                                         Rectangle {
-                                            Layout.fillWidth: true; implicitHeight: 8; radius: 4; color: root.track
-                                            Rectangle { property real displayedQuota: quota.remaining; Behavior on displayedQuota { NumberAnimation { duration: root.dataDuration(0.90); easing.type: Easing.Linear } } width: parent.width * displayedQuota / 100 * root.ringProgress(accountCard.index); height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator }
+                                            Layout.fillWidth: true; implicitHeight: 6; radius: 3; color: root.track
+                                            Rectangle { property real displayedQuota: quota.remaining; Behavior on displayedQuota { NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.InOutCubic } } width: parent.width * displayedQuota / 100 * quotaFill.value; height: parent.height; radius: Math.min(4, width / 2); color: quota.indicator }
                                         }
                                         MText { text: quota.known ? root.resetText(quota.modelData.reset) : "Quota unavailable"; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                                     }
@@ -963,40 +1205,43 @@ ShellRoot {
                         }
                     }
                     GridLayout {
-                        visible: root.rings && root.accounts.length > 0
+                        visible: root.rings && root.quotaAccounts.length > 0
                         Layout.fillWidth: true
-                        columns: Math.max(1, Math.min(3, Math.floor((scroll.width + 12) / 156)))
-                        columnSpacing: 12; rowSpacing: 12
+                        columns: Math.max(1, Math.min(3, Math.floor((scroll.width + 10) / 142)))
+                        columnSpacing: 10; rowSpacing: 10
                         Repeater {
                             model: root.rings ? root.ringAccountIds : []
                             delegate: Rectangle {
                                 id: ringCard
                                 required property var modelData
                                 required property int index
-                                property var account: root.accounts.find(a => String(a.id) === String(modelData)) || ({name:"",provider:"",windows:[],status:"ok"})
-                                property bool apiKey: account.authKind === "api_key"
+                                property var account: root.quotaAccounts.find(a => String(a.id) === String(modelData)) || ({name:"",provider:"",windows:[],status:"ok"})
+                                property int revealStage: root.drawerStages.accounts[index] || 2
                                 property var session: root.windowFor(account, 300)
                                 property var week: root.windowFor(account, 10080)
                                 property real sessionLeft: root.remaining(session)
                                 property real weekLeft: root.remaining(week)
                                 property real sessionSweep: Math.max(0, sessionLeft)
                                 property real weekSweep: Math.max(0, weekLeft)
-                                Behavior on sessionSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.90); easing.type: Easing.Linear } }
-                                Behavior on weekSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.90); easing.type: Easing.Linear } }
+                                Behavior on sessionSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.Linear } }
+                                Behavior on weekSweep { enabled: root.opened && prefs.motionStyle !== "reduced"; NumberAnimation { duration: root.dataDuration(0.75); easing.type: Easing.Linear } }
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 100
-                                Layout.preferredWidth: 144
-                                implicitHeight: ringContent.implicitHeight + 24
+                                Layout.preferredWidth: 132
+                                implicitHeight: ringContent.implicitHeight + 20
                                 radius: prefs.cardRadius; color: root.cardColor
-                                opacity: root.stagger(index + 2)
+                                opacity: root.stagger(revealStage)
                                 transform: Translate { y: (1 - ringCard.opacity) * 4 }
                                 ColumnLayout {
                                     id: ringContent
                                     anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-                                    anchors.margins: 12; spacing: 5
+                                    anchors.margins: 10; spacing: 4
                                     RowLayout {
+                                        id: ringHeading
+                                        opacity: root.stagger(ringCard.revealStage + 1)
+                                        transform: Translate { y: (1 - ringHeading.opacity) * 4 }
                                         Layout.fillWidth: true; spacing: 6
-                                        ProviderIcon { Layout.preferredWidth: 23; Layout.preferredHeight: 23; name: root.logo(ringCard.account.provider); fallback: String(ringCard.account.provider).slice(0,1).toUpperCase() }
+                                        ProviderIcon { Layout.preferredWidth: 23; Layout.preferredHeight: 23; name: root.logo(ringCard.account.provider) }
                                         ColumnLayout {
                                             Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
                                             MText { Layout.fillWidth: true; elide: Text.ElideRight; text: ringCard.account.name; font.weight: Font.DemiBold; font.pixelSize: 12 }
@@ -1005,13 +1250,14 @@ ShellRoot {
                                     }
                                     Item {
                                         id: ringFace
-                                        visible: !ringCard.apiKey
+                                        opacity: root.stagger(ringCard.revealStage + 2)
                                         // Never let the layout independently stretch the two axes.
-                                        property real diameter: Math.max(1, Math.min(root.accounts.length === 1 ? 144 : 132, Math.floor(ringCard.width - 24)))
+                                        property real diameter: Math.max(1, Math.min(root.quotaAccounts.length === 1 ? 124 : 116, Math.floor(ringCard.width - 20)))
                                         property real strokeSize: diameter * 0.05
                                         property real outerRadius: diameter * 0.40
                                         property real innerRadius: diameter * (37 / 120)
-                                        property real drawProgress: root.ringProgress(ringCard.index)
+                                        MotionValue { id: ringFill; targetValue: root.opened && ringFace.visible && ringFace.opacity > 0.15 ? 1 : 0; dataMotion: true; animateInitial: true; factor: 0.8; curve: Easing.Linear }
+                                        property real drawProgress: ringFill.value
                                         implicitWidth: diameter
                                         implicitHeight: diameter
                                         Layout.alignment: Qt.AlignHCenter
@@ -1050,13 +1296,23 @@ ShellRoot {
                                         // Fit both lines inside the inner circle, including 100%,
                                         // wide user-selected fonts and narrow multi-account cards.
                                         Column {
+                                            id: weeklyCentre
                                             anchors.centerIn: parent
                                             width: Math.floor(ringFace.diameter * 0.43)
                                             spacing: Math.max(1, Math.round(ringFace.diameter * 0.012))
+                                            HoverHandler { id: weeklyResetHover }
+                                            QuotaHint {
+                                                id: weeklyResetPeek
+                                                parent: weeklyCentre
+                                                visible: root.opened && weeklyResetHover.hovered && ringFace.opacity > 0.99
+                                                text: root.resetText(ringCard.week ? ringCard.week.reset : null)
+                                                x: (parent.width - width) / 2
+                                                y: -height - 8
+                                            }
                                             MText {
                                                 width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.19))
                                                 horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                                                text: ringCard.sessionLeft < 0 ? "—" : Math.round(ringCard.sessionLeft) + "%"
+                                                text: ringCard.weekLeft < 0 ? "—" : Math.round(ringCard.weekLeft) + "%"
                                                 font.weight: Font.DemiBold
                                                 font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.17))
                                                 minimumPixelSize: 4; fontSizeMode: Text.Fit
@@ -1065,31 +1321,21 @@ ShellRoot {
                                             MText {
                                                 width: parent.width; height: Math.max(1, Math.floor(ringFace.diameter * 0.105))
                                                 horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                                                text: "session"; font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.078))
+                                                text: "Weekly"; font.pixelSize: Math.max(6, Math.floor(ringFace.diameter * 0.078))
                                                 minimumPixelSize: 4; fontSizeMode: Text.Fit; wrapMode: Text.NoWrap; color: root.muted
                                             }
                                         }
                                     }
-                                    ColumnLayout {
-                                        visible: ringCard.apiKey
-                                        Layout.fillWidth: true; spacing: 6
-                                        Rectangle {
-                                            Layout.fillWidth: true; implicitHeight: 42; radius: 12
-                                            color: root.track
-                                            MText { anchors.centerIn: parent; text: "API KEY"; font.pixelSize: 12; font.weight: Font.DemiBold; color: root.foreground }
-                                        }
-                                        MText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: "Quota resources unavailable"; color: root.muted; font.pixelSize: 10; wrapMode: Text.WordWrap }
-                                    }
-
-                                    // Align labels and values with the product reference; keep
+                                    // Align labels and values like the website preview; keep
                                     // reset text subordinate rather than splitting it into a third row.
                                     Repeater {
-                                        model: ringCard.apiKey ? [] : [
-                                            { label: "Session", value: ringCard.sessionLeft, quota: ringCard.session, tint: root.sessionColor },
-                                            { label: "Weekly", value: ringCard.weekLeft, quota: ringCard.week, tint: root.weeklyColor }
-                                        ]
+                                        model: [
+                                            { label: "Session", value: ringCard.sessionLeft, quota: ringCard.session, tint: root.sessionColor }
+                                        ].concat(root.extraWindows(ringCard.account).map(w => ({label:root.windowLabel(w),value:root.remaining(w),quota:w,tint:root.weeklyColor})))
                                         delegate: RowLayout {
                                             required property var modelData
+                                            required property int index
+                                            opacity: root.stagger(ringCard.revealStage + 3 + index)
                                             Layout.fillWidth: true; spacing: 6
                                             ColumnLayout {
                                                 Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
@@ -1097,26 +1343,88 @@ ShellRoot {
                                                 MText {
                                                     visible: modelData.quota !== null
                                                     Layout.fillWidth: true; font.pixelSize: 10; color: root.muted; elide: Text.ElideRight
-                                                    text: root.resetText(modelData.quota ? modelData.quota.reset : null)
+                                                    text: root.resetText(modelData.quota ? modelData.quota.reset : null) + (modelData.quota && modelData.quota.shared ? " · Shared budget" : "")
                                                 }
                                             }
                                             MText {
-                                                text: modelData.value < 0 ? "—" : Math.round(modelData.value) + "%"
+                                                text: modelData.quota ? root.windowValue(modelData.quota) : "—"
                                                 color: modelData.tint; font.family: root.monoFont; font.pixelSize: 12
                                                 font.weight: Font.DemiBold
                                             }
                                         }
                                     }
-                                    MText { visible: ringCard.account.status !== "ok" && !ringCard.apiKey; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; text: ringCard.account.status }
+                                    MText { opacity: root.stagger(ringCard.revealStage + 4 + root.extraWindows(ringCard.account).length); visible: ringCard.account.status !== "ok"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; color: root.danger; font.pixelSize: 11; wrapMode: Text.WordWrap; text: root.accountStatus(ringCard.account) }
                                 }
                             }
                         }
                     }
+                    Repeater {
+                        model: root.compactAccounts
+                        delegate: Rectangle {
+                            id: apiKeyCard
+                            required property var modelData
+                            required property int index
+                            property int revealStage: root.drawerStages.accounts[root.quotaAccounts.length + index] || 2
+                            Layout.fillWidth: true
+                            implicitHeight: compactContent.implicitHeight + 26
+                            radius: Math.min(18,prefs.cardRadius); color: root.cardColor
+                            opacity: root.stagger(revealStage)
+                            transform: Translate { y: (1 - apiKeyCard.opacity) * 4 }
+                            ColumnLayout {
+                                id: compactContent
+                                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 13
+                                spacing: 8
+                                RowLayout {
+                                    id: apiKeyDetails
+                                    Layout.fillWidth: true
+                                    spacing: 10
+                                    ProviderIcon {
+                                        Layout.preferredWidth: 28; Layout.preferredHeight: 28
+                                        name: root.logo(apiKeyCard.modelData.provider)
+                                        opacity: root.stagger(apiKeyCard.revealStage + 1)
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 3
+                                        opacity: root.stagger(apiKeyCard.revealStage + 1)
+                                        MText { text: apiKeyCard.modelData.provider; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        MText { text: apiKeyCard.modelData.name; font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    }
+                                    ColumnLayout {
+                                        spacing: 3; opacity: root.stagger(apiKeyCard.revealStage + 2)
+                                        MText { text: root.compactTitle(apiKeyCard.modelData); visible: text.length > 0; font.pixelSize: 11; font.weight: Font.Medium; color: root.foreground; Layout.alignment: Qt.AlignRight }
+                                        MText { text: root.compactValue(apiKeyCard.modelData); font.pixelSize: 10; color: root.muted; Layout.alignment: Qt.AlignRight }
+                                    }
+                                }
+                                AccountUsageReading { visible: apiKeyCard.modelData.authKind !== "free" && !(apiKeyCard.modelData.windows || []).length && (!root.usageReady || root.hasUsageData(root.accountUsage(apiKeyCard.modelData))); account: apiKeyCard.modelData; compact: true; opacity: root.stagger(apiKeyCard.revealStage + 2) }
+                                FreeModelActivity { visible: apiKeyCard.modelData.authKind === "free"; account: apiKeyCard.modelData; opacity: root.stagger(apiKeyCard.revealStage + 2) }
+                                Repeater {
+                                    model: apiKeyCard.modelData.windows || []
+                                    delegate: ColumnLayout {
+                                        required property var modelData
+                                        required property int index
+                                        Layout.fillWidth: true; spacing: 4
+                                        opacity: root.stagger(apiKeyCard.revealStage + 3 + index)
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            MText { text: root.windowLabel(modelData); font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                                            MText { text: root.windowValue(modelData); font.pixelSize: 11; font.family: root.monoFont }
+                                        }
+                                        Rectangle { Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: root.track
+                                            Rectangle { width: parent.width * Math.max(0,root.remaining(modelData))/100; height: parent.height; radius: 2; color: root.primary }
+                                        }
+                                        MText { text: root.resetText(modelData.reset) + (modelData.shared ? " · Shared budget" : ""); font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    }
+                                }
+                            }
+                            HoverHandler { id: compactHover }
+                            QuotaHint { parent: apiKeyCard; visible: root.opened && compactHover.hovered && apiKeyCard.modelData.authKind === "free"; text: root.compactHint(apiKeyCard.modelData); y: -height - 8; x: (parent.width-width)/2 }
+                        }
+                    }
                     RowLayout {
                         id: footer
-                        opacity: root.stagger(Math.min(root.accounts.length + 3, 10))
+                        opacity: root.stagger(root.drawerStages.footer)
                         transform: Translate { y: (1 - footer.opacity) * 4 }
-                        Layout.fillWidth: true; spacing: 8
+                        Layout.fillWidth: true; spacing: 6
                         Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: root.muted }
                         MText { text: "Local cache"; color: root.muted; font.pixelSize: 11 }
                         Item { Layout.fillWidth: true }
@@ -1138,10 +1446,8 @@ ShellRoot {
         implicitHeight: 36
         radius: 18
         color: "transparent"
-        MotionValue { id: buttonSpring; targetValue: choiceMouse.pressed ? 0.98 : 1; factor: 0.4 }
         Rectangle {
             anchors.fill: parent; radius: choice.radius
-            scale: prefs.motionStyle === "liquid" ? buttonSpring.value : 1
             color: choice.selected ? root.primary : choiceMouse.pressed ? root.buttonColor : choiceMouse.containsMouse ? (choice.elevated ? root.buttonColor : root.track) : choice.elevated ? root.track : root.cardColor
             border.width: choice.elevated && !choice.selected ? 1 : 0
             border.color: choiceMouse.containsMouse ? root.primary : root.outline
@@ -1234,7 +1540,7 @@ ShellRoot {
             radius: 16
             color: liquidSelect.down ? root.buttonColor : liquidSelect.hovered ? (liquidSelect.prominent ? root.buttonColor : root.track) : liquidSelect.prominent ? root.track : root.cardColor
             border.width: 1
-            border.color: liquidSelect.activeFocus || liquidSelect.popup.visible ? root.primary : root.outline
+            border.color: liquidSelect.visualFocus || liquidSelect.popup.visible ? root.primary : root.outline
             Behavior on color { ColorAnimation { duration: root.controlDuration() } }
             Behavior on border.color { ColorAnimation { duration: root.controlDuration() } }
         }
@@ -1330,7 +1636,7 @@ ShellRoot {
                     y: liquidPopup.above ? parent.height-height : 0
                     width: Math.max(1,parent.width*liquidPopup.growth)
                     height: Math.max(1,parent.height*root.heightProgress(liquidPopup.growth))
-                    radius: root.liquidRadius(width,height,liquidPopup.growth,20)
+                    radius: Math.min(20,width/2,height/2)
                     opacity: root.smooth(liquidPopup.growth/0.14)
                     color: root.cardColor; border.width: 1; border.color: root.outline
                 }
@@ -1371,6 +1677,160 @@ ShellRoot {
     }
     component SectionTitle: MText { font.pixelSize: 18; font.weight: Font.DemiBold; Layout.fillWidth: true }
     component Description: MText { font.pixelSize: 13; color: root.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+    component AccountUsageReading: ColumnLayout {
+        id: accountReading
+        required property var account
+        property bool compact: false
+        property var usage: root.accountUsage(account)
+        Layout.fillWidth: true; spacing: 7
+        RowLayout {
+            visible: !!accountReading.usage.available
+            Layout.fillWidth: true; spacing: 16
+            ColumnLayout {
+                Layout.fillWidth: true; spacing: 3
+                MText { text: root.countText((accountReading.usage.totals || {}).totalTokens); font.pixelSize: accountReading.compact ? 18 : 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                MText { text: (accountReading.usage.totals || {}).tokensComplete === false ? "Known tokens" : "Tokens"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true; spacing: 3
+                MText { text: root.usageCost(accountReading.usage.totals || {}); font.pixelSize: accountReading.compact ? 18 : 24; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                MText { text: (accountReading.usage.totals || {}).costComplete === false ? "Known usage cost" : "Usage cost"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true }
+            }
+        }
+        MText {
+            visible: !!accountReading.usage.available
+            text: (accountReading.usage.periodDays===7 ? "Last 7 days" : root.usagePeriodText)+" · "+(accountReading.usage.scope || "Local usage")+(accountReading.account.provider === "Claude Code" && (accountReading.usage.totals || {}).tokensComplete === false ? " · input and cache only" : "")+(accountReading.usage.partial ? " · partial" : "")
+            font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
+        }
+        MText {
+            visible: !accountReading.usage.available
+            text: !root.usageReady ? "Reading local usage…" : "No local usage recorded for this period."
+            font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
+        }
+    }
+    component FreeModelActivity: ColumnLayout {
+        id: freeActivity
+        required property var account
+        Layout.fillWidth: true; spacing: 7
+        AccountUsageReading { account: freeActivity.account; compact: true }
+        Repeater {
+            model: root.freeLimitModels(freeActivity.account).slice(0,2)
+            delegate: ColumnLayout {
+                required property var modelData
+                Layout.fillWidth: true; spacing: 2
+                MText { text: modelData.name; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                MText { text: root.freeLimitText(modelData); font.pixelSize: 10; color: modelData.observation.retryAt > root.now ? root.primary : root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+            }
+        }
+        MText { text: freeActivity.account.observationsStatus === "unavailable" ? "Limit history unavailable" : "Free allowance remaining is unknown"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+        Button {
+            id: usageButton
+            implicitWidth: 104; implicitHeight: 28
+            hoverEnabled: true; focusPolicy: Qt.StrongFocus
+            Accessible.name: "View OpenCode usage"
+            onClicked: root.openSettings("Analytics")
+            contentItem: MText { text: "View usage"; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+            background: Rectangle { radius: 12; color: usageButton.hovered || usageButton.down ? root.track : root.buttonColor; border.width: usageButton.visualFocus ? 2 : 0; border.color: root.primary }
+        }
+    }
+    component OverviewAccountCard: Rectangle {
+        id: overviewAccount
+        required property var account
+        required property var usage
+        property bool sharedUsage: false
+        property bool hasLimits: (account.windows || []).length>0
+        property bool hasData: hasLimits || root.hasUsageData(usage)
+        Layout.fillWidth: true; Layout.fillHeight: true
+        implicitHeight: Math.max(sharedUsage ? 76 : 156,overviewDetails.implicitHeight+26); radius: 18; color: root.cardColor
+        ColumnLayout {
+            id: overviewDetails
+            anchors.fill: parent; anchors.margins: 13; spacing: 8
+            RowLayout {
+                Layout.fillWidth: true; spacing: 8
+                ProviderIcon { name: root.logo(overviewAccount.account.provider); Layout.preferredWidth: 22; Layout.preferredHeight: 22 }
+                MText { text: overviewAccount.account.name; font.weight: Font.Medium; font.pixelSize: 14; Layout.fillWidth: true; elide: Text.ElideRight }
+                MText { text: root.authLabel(overviewAccount.account); color: root.muted; font.pixelSize: 10 }
+            }
+            MText {
+                text: !overviewAccount.hasData ? (overviewAccount.account.status === "login_required" ? "Sign in again for limits" : "No local usage or limits") : root.accountSummary(overviewAccount.account)
+                font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap
+            }
+            GridLayout {
+                visible: overviewAccount.hasLimits; columns: overviewAccount.width>=220 ? 2 : 1
+                Layout.fillWidth: true; columnSpacing: 14; rowSpacing: 9
+                Repeater {
+                    model: overviewAccount.account.windows || []
+                    delegate: ColumnLayout {
+                        required property var modelData
+                        Layout.fillWidth: true; spacing: 5
+                        RowLayout {
+                            Layout.fillWidth: true
+                            MText { text: modelData.minutes===300 ? "Session" : root.windowLabel(modelData); font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
+                            MText { text: root.windowValue(modelData); font.pixelSize: 11 }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: root.track
+                            Rectangle { width: parent.width*Math.max(0,root.remaining(modelData))/100; height: parent.height; radius: 2; color: root.primary }
+                        }
+                        MText { text: root.resetText(modelData.reset); font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; elide: Text.ElideRight }
+                    }
+                }
+            }
+            Item { Layout.fillHeight: true }
+            RowLayout {
+                visible: !overviewAccount.sharedUsage && (root.hasUsageData(overviewAccount.usage) || !overviewAccount.hasLimits)
+                Layout.fillWidth: true; spacing: 10
+                MText { text: (root.hasUsageData(overviewAccount.usage) ? root.countText(overviewAccount.usage.totals.totalTokens) : "—")+((overviewAccount.usage.totals || {}).tokensComplete === false ? " known tokens" : " tokens"); font.pixelSize: 19; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                MText { text: root.usageCost(overviewAccount.usage.totals || {}); font.pixelSize: 18; font.weight: Font.Medium }
+            }
+            MText {
+                visible: !overviewAccount.sharedUsage; Layout.preferredHeight: 12
+                text: root.hasUsageData(overviewAccount.usage) ? overviewAccount.usage.scope || "Local usage" : ""; Layout.fillWidth: true; elide: Text.ElideRight; font.pixelSize: 10; color: root.muted
+            }
+        }
+    }
+    component OverviewAccountGroup: ColumnLayout {
+        id: accountGroup
+        required property var group
+        Layout.fillWidth: true; Layout.alignment: Qt.AlignTop; spacing: 10
+        RowLayout {
+            Layout.fillWidth: true; spacing: 8
+            ProviderIcon { name: root.logo(accountGroup.group.provider); Layout.preferredWidth: 24; Layout.preferredHeight: 24 }
+            MText { text: accountGroup.group.provider; font.pixelSize: 17; font.weight: Font.DemiBold; Layout.fillWidth: true }
+        }
+        Repeater {
+            model: accountGroup.group.sharedUsage
+            delegate: ColumnLayout {
+                required property var modelData
+                Layout.fillWidth: true; spacing: 5
+                RowLayout {
+                    Layout.fillWidth: true
+                    MText { text: root.countText(modelData.totals.totalTokens)+" tokens"; font.pixelSize: 17; font.weight: Font.Medium; Layout.fillWidth: true }
+                    MText { text: root.usageCost(modelData.totals); font.pixelSize: 17 }
+                }
+                MText { text: modelData.scope+" · counted once"; font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+            }
+        }
+        Repeater {
+            model: accountGroup.group.rows
+            delegate: GridLayout {
+                id: accountRow
+                required property var modelData
+                columns: accountGroup.width>=440 ? modelData.length : 1
+                uniformCellWidths: true; uniformCellHeights: true
+                Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
+                Repeater {
+                    model: accountRow.modelData
+                    delegate: OverviewAccountCard {
+                        required property var modelData
+                        account: modelData.account; usage: modelData.usage
+                        sharedUsage: accountGroup.group.sharedKeys.includes(modelData.usage.sourceKey)
+                    }
+                }
+            }
+        }
+    }
+
     component StatCard: Rectangle {
         id: stat
         property string label: ""
@@ -1481,7 +1941,7 @@ ShellRoot {
                                         background: Rectangle {
                                             radius: height/2
                                             color: root.settingsTab !== navigationButton.modelData && navigationButton.hovered ? root.track : "transparent"
-                                            border.width: navigationButton.activeFocus ? 2 : 0; border.color: root.foreground
+                                            border.width: navigationButton.visualFocus ? 2 : 0; border.color: root.foreground
                                         }
                                         contentItem: RowLayout {
                                             spacing: 8
@@ -1529,69 +1989,69 @@ ShellRoot {
                             id: page
                             width: pageScroll.width; spacing: 16
                             ColumnLayout {
-                                visible: root.settingsTab === "Overview"; Layout.fillWidth: true; spacing: 14
-                                Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
-                                    text: "Your AI resources, in one place. All data stays on this device." }
-                                GridLayout {
-                                    
-                                    columns: 2; Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
-                                    StatCard { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) } label: "Visible accounts"; value: String(root.accounts.length) }
-                                    StatCard { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) } label: "Healthy accounts"; value: String(root.accounts.filter(a => a.status === "ok").length) }
-                                    StatCard { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) } label: "Providers"; value: String(new Set(root.accounts.map(a => a.provider)).size) }
-                                    StatCard { opacity: root.pageStage(5); transform: ItemGrowth { stage: root.pageStage(5) } label: "Token requests"; value: root.countText(root.analyticsTotals.requests) }
-                                }
-                                SectionTitle { opacity: root.pageStage(6); transform: ItemGrowth { stage: root.pageStage(6) }
-                                    text: "Current provider data" }
-                                Description { opacity: root.pageStage(7); transform: ItemGrowth { stage: root.pageStage(7) }
-                                    text: root.status }
-                                Repeater {
-                                    model: root.accounts
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        required property int index
-                                        opacity: root.pageStage(index+8); transform: ItemGrowth { stage: root.pageStage(index+8) }
-                                        id: overviewAccount
-                                        Layout.fillWidth: true; implicitHeight: overviewDetails.implicitHeight+28; radius: 18; color: root.cardColor
-                                        ColumnLayout {
-                                            id: overviewDetails
-                                            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 14; spacing: 12
-                                            RowLayout {
-                                                Layout.fillWidth: true; spacing: 12
-                                                ProviderIcon { Layout.preferredWidth: 32; Layout.preferredHeight: 32; name: root.logo(overviewAccount.modelData.provider); fallback: String(overviewAccount.modelData.provider).slice(0,1).toUpperCase() }
-                                                ColumnLayout { Layout.fillWidth: true; spacing: 3
-                                                    MText { text: overviewAccount.modelData.provider + " · " + overviewAccount.modelData.name; Layout.fillWidth: true; elide: Text.ElideRight; font.weight: Font.Medium }
-                                                    Description { text: overviewAccount.modelData.authKind === "api_key" ? "API key · quota resources unavailable" : overviewAccount.modelData.status; font.pixelSize: 11 }
-                                                }
-                                            }
-                                            RowLayout {
-                                                visible: overviewAccount.modelData.authKind !== "api_key"
-                                                Layout.fillWidth: true; spacing: 18
-                                                Repeater {
-                                                    model: [{label:"Session",value:root.remaining(root.windowFor(overviewAccount.modelData,300)),tint:root.sessionColor},{label:"Weekly",value:root.remaining(root.windowFor(overviewAccount.modelData,10080)),tint:root.weeklyColor}]
-                                                    delegate: ColumnLayout {
-                                                        id: overviewQuota
-                                                        required property var modelData
-                                                        required property int index
-                                                        Layout.fillWidth: true; spacing: 6
-                                                        RowLayout {
-                                                            Layout.fillWidth: true
-                                                            MText { text: overviewQuota.modelData.label; color: root.muted; font.pixelSize: 11; Layout.fillWidth: true }
-                                                            MText { text: overviewQuota.modelData.value < 0 ? "—" : Math.round(overviewQuota.modelData.value)+"%"; font.family: root.monoFont; font.pixelSize: 12 }
-                                                        }
-                                                        Rectangle {
-                                                            Layout.fillWidth: true; implicitHeight: 5; radius: 3; color: root.track
-                                                            Rectangle { width: parent.width*Math.max(0,overviewQuota.modelData.value)/100*root.pageDataProgress(overviewAccount.index+overviewQuota.index); height: parent.height; radius: 3; color: overviewQuota.modelData.tint }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Description { visible: overviewAccount.modelData.authKind === "api_key"; text: "API-key usage is shown in Analytics. Quota resources are unavailable."; font.pixelSize: 11 }
-                                        }
+                                id: overviewPage
+                                visible: root.settingsTab === "Overview"; Layout.fillWidth: true; spacing: 16
+                                RowLayout {
+                                    opacity: root.pageStage(1); Layout.fillWidth: true; spacing: 14
+                                    WispMark { Layout.preferredWidth: 64; Layout.preferredHeight: 72; ink: root.primary }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 5
+                                        MText { text: root.overviewHeading; font.pixelSize: 23; font.weight: Font.DemiBold; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                        Description { text: root.quotaAccountCount+" reporting limits · "+root.overviewClients.length+" with local usage"; font.pixelSize: 12 }
+                                        MText { visible: root.attentionAccountCount>0; text: root.attentionAccountCount+" "+(root.attentionAccountCount===1?"account needs":"accounts need")+" attention"; color: root.primary; font.pixelSize: 12; Layout.fillWidth: true }
                                     }
                                 }
-                                Description { opacity: root.pageStage(11); transform: ItemGrowth { stage: root.pageStage(11) }
-                                    visible: root.accounts.length === 0; text: "No visible accounts. Check provider preferences or run aether refresh." }
+                                Flow {
+                                    Layout.fillWidth: true; spacing: 8; opacity: root.pageStage(2)
+                                    Repeater { model: [{v:"1",n:"24 hours"},{v:"7",n:"7 days"},{v:"30",n:"30 days"}]
+                                        delegate: Choice { required property var modelData; label: modelData.n; selected: root.analyticsPeriod===modelData.v; onChosen: root.analyticsPeriod=modelData.v }
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true; implicitHeight: overviewMetrics.implicitHeight+32
+                                    radius: 22; color: root.cardColor; opacity: root.pageStage(3)
+                                    ColumnLayout {
+                                        id: overviewMetrics
+                                        anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 16; spacing: 16
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 16
+                                            ColumnLayout {
+                                                Layout.fillWidth: true; spacing: 4
+                                                Description { text: root.overviewTotals.tokensComplete ? "Tokens" : "Known tokens"; font.pixelSize: 12 }
+                                                MText { text: root.overviewClients.length ? root.countText(root.overviewTotals.totalTokens) : "—"; font.pixelSize: 38; font.weight: Font.DemiBold; font.letterSpacing: -1; Layout.fillWidth: true; elide: Text.ElideRight }
+                                            }
+                                            ColumnLayout {
+                                                Layout.fillWidth: true; spacing: 4
+                                                Description { text: root.overviewTotals.costComplete ? "Usage cost" : "Known usage cost"; font.pixelSize: 12 }
+                                                MText { text: root.overviewClients.length ? root.usageCost(root.overviewTotals) : "—"; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -1; Layout.fillWidth: true; elide: Text.ElideRight }
+                                            }
+                                        }
+                                        Flow {
+                                            Layout.fillWidth: true; spacing: 14
+                                            MText { text: root.countText(root.overviewTotals.inputTokens)+" input"; font.pixelSize: 12; color: root.muted }
+                                            MText { text: root.overviewTotals.tokensComplete ? root.countText(root.overviewTotals.outputTokens)+" output" : "Output partly unavailable"; font.pixelSize: 12; color: root.muted }
+                                            MText { text: root.countText(root.overviewTotals.cachedInputTokens)+" cached"; font.pixelSize: 12; color: root.muted }
+                                        }
+                                        Description { text: root.overviewClients.length ? "Recorded and estimated costs. Not a bill." : "No local usage recorded for this period."; font.pixelSize: 11 }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    SectionTitle { text: "Accounts" }
+                                    Choice { label: "Usage details"; onChosen: root.selectPage("Analytics") }
+                                }
+                                Repeater {
+                                    model: root.overviewAccountGroups
+                                    delegate: OverviewAccountGroup {
+                                        required property var modelData
+                                        required property int index
+                                        group: modelData
+                                        opacity: root.pageStage(index+4)
+                                    }
+                                }
+                                Description { visible: !root.accounts.length; text: "No visible accounts. Check provider preferences." }
                             }
+
                             ColumnLayout {
                                 visible: root.settingsTab === "Appearance"; Layout.fillWidth: true; spacing: 14
                                 SectionTitle { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
@@ -1665,12 +2125,12 @@ ShellRoot {
                                 SectionTitle { opacity: root.pageStage(18); transform: ItemGrowth { stage: root.pageStage(18) }
                                     text: "Motion" }
                                 Description { opacity: root.pageStage(19); transform: ItemGrowth { stage: root.pageStage(19) }
-                                    text: "Liquid uses responsive, interruptible transitions with capsule-shaped surfaces. Smooth is slightly slower. Data fills have independent timing; Reduced disables both." }
+                                    text: "Smooth uses gradual expansion and staggered reveals. Data fills have independent timing. Reduced disables animations." }
                                 RowLayout { opacity: root.pageStage(20); transform: ItemGrowth { stage: root.pageStage(20) }
                                     
                                     Layout.fillWidth: true
                                     MText { text: "Motion style"; Layout.fillWidth: true }
-                                    LiquidSelect { Layout.preferredWidth: 180; model: ["Liquid","Smooth","Reduced"]; currentIndex: Math.max(0,["liquid","smooth","reduced"].indexOf(prefs.motionStyle)); onActivated: function(index) { prefs.motionStyle = ["liquid","smooth","reduced"][index] }}
+                                    LiquidSelect { Layout.preferredWidth: 180; model: ["Smooth","Reduced"]; currentIndex: Math.max(0,["smooth","reduced"].indexOf(prefs.motionStyle)); onActivated: function(index) { prefs.motionStyle = ["smooth","reduced"][index] }}
                                 }
                                 RowLayout { opacity: root.pageStage(21); transform: ItemGrowth { stage: root.pageStage(21) } MText { text: "Animate Wisp"; Layout.fillWidth: true } MSwitch { checked: prefs.wispMotion; enabled: prefs.motionStyle !== "reduced"; onToggled: prefs.wispMotion = checked } }
                                 Description { opacity: root.pageStage(22); transform: ItemGrowth { stage: root.pageStage(22) } text: "Wisp is aether.ai’s mascot. Reduced motion keeps Wisp still." }
@@ -1684,6 +2144,12 @@ ShellRoot {
                                 visible: root.settingsTab === "Providers"; Layout.fillWidth: true; spacing: 12
                                 Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     text: "Choose which providers and accounts appear in aether. These switches control visibility only; they do not disable accounts in T3 or stop backend polling." }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    MText { text: "Hide unavailable accounts"; Layout.fillWidth: true }
+                                    MSwitch { quietOutline: true; checked: prefs.hideUnavailableAccounts; Accessible.name: "Hide unavailable accounts"; onToggled: { prefs.hideUnavailableAccounts=checked; prefs.sync() } }
+                                }
+                                Description { text: "Keep accounts with limits or recorded usage. All discovered accounts remain manageable below."; font.pixelSize: 11 }
                                 Repeater {
                                     model: root.providerGroups
                                     delegate: Rectangle {
@@ -1703,10 +2169,10 @@ ShellRoot {
                                         ColumnLayout {
                                             id: providerContent; visible: !providerRow.groupHeader; anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 16; spacing: 12
                                             RowLayout { Layout.fillWidth: true; spacing: 12
-                                                ProviderIcon { Layout.preferredWidth: 38; Layout.preferredHeight: 38; name: providerRow.modelData.id; fallback: providerRow.modelData.name.slice(0,1) }
+                                                ProviderIcon { Layout.preferredWidth: 38; Layout.preferredHeight: 38; name: providerRow.modelData.id }
                                                 ColumnLayout { Layout.fillWidth: true; spacing: 3
                                                     MText { text: providerRow.modelData.name; font.weight: Font.DemiBold; Layout.fillWidth: true }
-                                                    Description { text: providerRow.matches.length ? providerRow.matches.filter(a => !root.hiddenAccounts.includes(String(a.id))).length + " of " + providerRow.matches.length + " accounts selected" : providerRow.modelData.id === "codex" ? "No accounts discovered" : "Native quota adapter planned"; font.pixelSize: 11 }
+                                                    Description { text: providerRow.matches.length ? providerRow.matches.filter(a => !root.hiddenAccounts.includes(String(a.id))).length + " of " + providerRow.matches.length + " accounts selected" : ["codex","claude","pi","opencode"].includes(providerRow.modelData.id) ? "No accounts discovered. Sign in through the client." : "Quota adapter unavailable"; font.pixelSize: 11 }
                                                 }
                                                 MSwitch { checked: !root.hiddenProviders.includes(providerRow.modelData.id); onToggled: root.setHidden("hiddenProviders", providerRow.modelData.id, !checked) }
                                             }
@@ -1726,7 +2192,7 @@ ShellRoot {
                                                     property real session: root.remaining(root.windowFor(modelData,300))
                                                     property real weekly: root.remaining(root.windowFor(modelData,10080))
                                                     Layout.fillWidth: true; implicitHeight: accountDetails.implicitHeight + 24
-                                                    radius: 16; color: root.surface; border.width: 1; border.color: root.outline
+                                                    radius: 16; color: root.surface
                                                     opacity: (providerRow.shown ? 1 : 0.55)*root.pageStage(providerRow.index+3+index)
                                                     transform: ItemGrowth { stage: root.pageStage(providerRow.index+3+index) }
                                                     ColumnLayout {
@@ -1736,21 +2202,21 @@ ShellRoot {
                                                             Layout.fillWidth: true; spacing: 10
                                                             Rectangle {
                                                                 Layout.preferredWidth: 36; Layout.preferredHeight: 36; radius: 12; color: root.buttonColor
-                                                                MText { anchors.centerIn: parent; text: String(accountRow.modelData.name || "Account").trim().slice(0,1).toUpperCase() || "A"; font.weight: Font.DemiBold; font.pixelSize: 16; color: root.onPrimaryContainer }
+                                                                ProviderIcon { anchors.centerIn: parent; width: 22; height: 22; name: root.logo(accountRow.modelData.provider) }
                                                             }
                                                             ColumnLayout {
                                                                 Layout.fillWidth: true; spacing: 3
                                                                 MText { text: accountRow.modelData.name || "Account"; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                                                                 RowLayout {
                                                                     spacing: 5
-                                                                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: accountRow.modelData.status === "ok" ? root.primary : accountRow.modelData.status === "stale" ? root.weeklyColor : root.danger }
-                                                                    MText { text: !accountRow.shown || !providerRow.shown ? "Hidden" : accountRow.modelData.authKind === "api_key" ? "API key · resources unavailable" : accountRow.modelData.status === "ok" ? "Available" : accountRow.modelData.status === "stale" ? "Stale cache" : "Unavailable"; font.pixelSize: 11; color: root.muted }
+                                                                    Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: ["ok","free_available"].includes(accountRow.modelData.status) ? root.primary : accountRow.modelData.status === "stale" ? root.weeklyColor : root.danger }
+                                                                    MText { text: !accountRow.shown || !providerRow.shown ? "Hidden" : accountRow.modelData.status === "ok" ? "Available" : accountRow.modelData.status === "stale" ? "Stale cache" : accountRow.modelData.authKind === "free" ? root.compactValue(accountRow.modelData) : root.accountSummary(accountRow.modelData); font.pixelSize: 11; color: root.muted }
                                                                 }
                                                             }
                                                             MSwitch { enabled: providerRow.shown; checked: accountRow.shown; onToggled: root.setHidden("hiddenAccounts", String(accountRow.modelData.id), !checked) }
                                                         }
                                                         RowLayout {
-                                                            visible: accountRow.modelData.authKind !== "api_key"
+                                                            visible: !!root.windowFor(accountRow.modelData,300) || !!root.windowFor(accountRow.modelData,10080)
                                                             Layout.fillWidth: true; spacing: 16
                                                             Repeater {
                                                                 model: [{label:"Session",value:accountRow.session,tint:root.sessionColor},{label:"Weekly",value:accountRow.weekly,tint:root.weeklyColor}]
@@ -1770,7 +2236,16 @@ ShellRoot {
                                                                 }
                                                             }
                                                         }
-                                                        Description { visible: accountRow.modelData.authKind === "api_key"; text: "Quota resources are unavailable for API-key sessions."; font.pixelSize: 11 }
+                                                        Repeater {
+                                                            model: root.extraWindows(accountRow.modelData)
+                                                            delegate: RowLayout {
+                                                                required property var modelData
+                                                                Layout.fillWidth: true
+                                                                Description { text: root.windowLabel(modelData); font.pixelSize: 11 }
+                                                                MText { text: root.windowValue(modelData); font.pixelSize: 11; font.family: root.monoFont }
+                                                            }
+                                                        }
+                                                        AccountUsageReading { account: accountRow.modelData; compact: true }
                                                     }
                                                 }
                                             }
@@ -1781,12 +2256,74 @@ ShellRoot {
                             ColumnLayout {
                                 visible: root.settingsTab === "Analytics"; Layout.fillWidth: true; spacing: 14
                                 Description { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
-                                    text: "Token usage comes from local Codex session logs. Cost is an API-equivalent estimate using standard OpenAI rates, not your provider invoice." }
+                                    text: "OpenCode usage is device-wide. Codex usage follows each local account. Costs can include model-price estimates." }
                                 Flow {
                                     Layout.fillWidth: true; spacing: 8
                                     Repeater { model: [{v:"1",n:"24 hours"},{v:"7",n:"7 days"},{v:"30",n:"30 days"},{v:"90",n:"90 days"}]
                                         delegate: Choice { required property var modelData; required property int index; opacity: root.pageStage(2+index); transform: ItemGrowth { stage: root.pageStage(2+index) } label: modelData.n; selected: root.analyticsPeriod === modelData.v; onChosen: root.analyticsPeriod = modelData.v }
                                     }
+                                }
+                                ColumnLayout {
+                                    id: openCodeUsage
+                                    visible: !root.hiddenProviders.includes("opencode") && root.openCodeAnalytics.status !== "not_detected"
+                                    Layout.fillWidth: true; spacing: 12
+                                    RowLayout {
+                                        Layout.fillWidth: true; spacing: 8
+                                        ProviderIcon { name: "opencode"; Layout.preferredWidth: 24; Layout.preferredHeight: 24 }
+                                        SectionTitle { text: "OpenCode" }
+                                    }
+                                    Description { visible: root.openCodeAnalytics.status !== "ok"; text: root.openCodeAnalytics.status === "loading" ? "Reading local OpenCode usage…" : "Local usage unavailable. Open OpenCode and refresh." }
+                                    GridLayout {
+                                        visible: root.openCodeAnalytics.status === "ok"
+                                        columns: Math.max(1,Math.min(3,Math.floor((pageScroll.width+12)/180)))
+                                        Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
+                                        StatCard { label: "Tokens"; value: root.countText((root.openCodeAnalytics.totals || {}).totalTokens) }
+                                        StatCard { label: "Model steps"; value: root.countText((root.openCodeAnalytics.totals || {}).steps) }
+                                        StatCard { label: "Recorded cost"; value: root.usageCost(root.openCodeAnalytics.totals || {}) }
+                                    }
+                                    Description { visible: root.openCodeAnalytics.status === "ok"; text: "All models used through OpenCode on this device. Recorded costs can be endpoint charges or catalogue estimates."; font.pixelSize: 11 }
+                                    Repeater {
+                                        model: root.openCodeAnalytics.status === "ok" ? root.openCodeModels : []
+                                        delegate: ColumnLayout {
+                                            required property var modelData
+                                            Layout.fillWidth: true; spacing: 3
+                                            RowLayout {
+                                                Layout.fillWidth: true; spacing: 10
+                                                MText { text: root.openCodeModelName(modelData); Layout.fillWidth: true; elide: Text.ElideRight; font.weight: Font.Medium }
+                                                MText { text: root.usageCost(modelData); font.pixelSize: 12 }
+                                            }
+                                            MText { text: modelData.providerID + " · " + root.countText(modelData.steps) + " steps · " + root.countText(modelData.totalTokens) + " tokens"; font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                            MText { text: root.countText(modelData.inputTokens) + " input · " + root.countText(modelData.outputTokens) + " output · " + root.countText(modelData.cachedInputTokens) + " cached · " + root.countText(modelData.reasoningTokens) + " reasoning"; font.pixelSize: 10; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                            MText { visible: !!root.openCodeObservation(modelData).observation && !!root.openCodeObservation(modelData).observation.limitObservedAt; text: root.freeLimitText(root.openCodeObservation(modelData)); font.pixelSize: 11; color: root.muted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                        }
+                                    }
+                                    Description { visible: root.openCodeAnalytics.status === "ok" && root.openCodeModels.length === 0; text: "No model activity recorded in this period." }
+                                    Description { visible: !!root.openCodeAnalytics.modelsTruncated; text: "Showing the first 256 models. Totals include all models."; font.pixelSize: 11 }
+                                }
+                                Repeater {
+                                    model: root.clientUsage.filter(c => !root.hiddenProviders.includes(root.logo(c.provider)))
+                                    delegate: ColumnLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true; spacing: 12
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 8
+                                            ProviderIcon { name: root.logo(modelData.provider); Layout.preferredWidth: 24; Layout.preferredHeight: 24 }
+                                            SectionTitle { text: modelData.provider }
+                                        }
+                                        GridLayout {
+                                            visible: modelData.status === "ok"
+                                            columns: pageScroll.width>=520 ? 3 : 1; Layout.fillWidth: true; columnSpacing: 12; rowSpacing: 12
+                                            StatCard { label: modelData.totals.tokensComplete === false ? "Known tokens" : "Tokens"; value: root.countText(modelData.totals.totalTokens) }
+                                            StatCard { label: "Model steps"; value: root.countText(modelData.totals.steps) }
+                                            StatCard { label: modelData.totals.costComplete === false ? "Known usage cost" : "Usage cost"; value: root.usageCost(modelData.totals) }
+                                        }
+                                        Description { text: modelData.status !== "ok" ? "No local usage recorded for this period." : modelData.provider === "Claude Code" && modelData.totals.tokensComplete === false ? "Input and cache totals from local transcripts. Final output counts are unavailable in these records." : modelData.partial ? "Partial local usage. One or more oversized or unreadable records were skipped." : "Local client usage on this device. Recorded costs can be estimates."; font.pixelSize: 11 }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    ProviderIcon { name: "codex"; Layout.preferredWidth: 24; Layout.preferredHeight: 24 }
+                                    SectionTitle { text: "Codex" }
                                 }
                                 RowLayout { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
                                     Layout.fillWidth: true
@@ -1914,9 +2451,9 @@ ShellRoot {
                                 RowLayout { opacity: root.pageStage(1); transform: ItemGrowth { stage: root.pageStage(1) }
                                     MText { text: "Hover activation"; Layout.fillWidth: true } MSwitch { checked: prefs.hoverEnabled; onToggled: prefs.hoverEnabled = checked } }
                                 RowLayout { opacity: root.pageStage(2); transform: ItemGrowth { stage: root.pageStage(2) }
-                                    MText { text: "Allow over full-screen apps"; Layout.fillWidth: true } MSwitch { checked: prefs.fullscreenOverride; onToggled: prefs.fullscreenOverride = checked } }
+                                    MText { text: "Open in fullscreen"; Layout.fillWidth: true } MSwitch { checked: prefs.fullscreenOverride; onToggled: prefs.fullscreenOverride = checked } }
                                 Description { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
-                                    text: "Off by default. The hotspot stays hidden while a full-screen window is active." }
+                                    text: "Off by default. Keep the monitor closed while an app is fullscreen. Enable to allow it over fullscreen apps." }
                                 SectionTitle { opacity: root.pageStage(4); transform: ItemGrowth { stage: root.pageStage(4) }
                                     text: "Activation position" }
                                 Rectangle { opacity: root.pageStage(3); transform: ItemGrowth { stage: root.pageStage(3) }
@@ -1940,7 +2477,7 @@ ShellRoot {
                                 Description { opacity: root.pageStage(8); transform: ItemGrowth { stage: root.pageStage(8) }
                                     text: "The daemon collects quotas every three minutes. This setting only changes how often the drawer reads its cache." }
                                 Choice { opacity: root.pageStage(9); transform: ItemGrowth { stage: root.pageStage(9) }
-                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.fullscreenOverride=false; prefs.motionMs=240; prefs.dataMotionMs=450; prefs.dismissDelay=350; prefs.layoutWidth=440; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.chartMode="line"; prefs.hotspotSize=40; prefs.hotspotRevision=1; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="liquid"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
+                                    label: "Restore defaults"; onChosen: { prefs.followTheme=true; prefs.colorScheme="mono"; prefs.hoverEnabled=true; prefs.fullscreenOverride=false; prefs.motionMs=240; prefs.dataMotionMs=450; prefs.dismissDelay=350; prefs.layoutWidth=360; prefs.cacheSeconds=5; prefs.viewMode="grid"; prefs.hotspot="top-right"; prefs.staggerEnabled=true; prefs.hiddenProviders="[]"; prefs.hiddenAccounts="[]"; prefs.hideUnavailableAccounts=false; prefs.chartMode="line"; prefs.hotspotSize=40; prefs.hotspotRevision=1; prefs.fontChoice="auto"; prefs.cardRadius=24; prefs.edgeFades=true; prefs.fadeDepth=28; prefs.localShortcutsEnabled=true; prefs.globalShortcutsEnabled=true; prefs.shortcutBindings="{}"; prefs.bindSyntax="conf"; prefs.motionStyle="smooth"; prefs.trackpadSpeed=1.6; prefs.wispMotion=true } }
                             }
                             ColumnLayout {
                                 visible: root.settingsTab === "Shortcuts"; Layout.fillWidth: true; spacing: 14
